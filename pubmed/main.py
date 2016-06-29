@@ -14,9 +14,26 @@ import lxml
 from . import models
 
 
+class CitationMatcherEntry(object):
+    
+    def __init__(self,jtitle=None,year=None,volume=None,page1=None,name=None,key=None):
+        pass
+    
+    def get_serialized(self,key_number=None):
+        pass
+
 class Pubmed(object):
     
     def __init__(self):
+        pass
+
+    def match_citations(self,citation_entries):
+        #http://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ECitMatch
+        
+        #journal_title|year|volume|first_page|author_name|your_key|
+        pass
+
+    def fetch(self):
         pass
     
     def search(self,query,**kwargs):
