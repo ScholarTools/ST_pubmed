@@ -93,6 +93,16 @@ def _to_list_text(data):
     
     return [x.text for x in data]
 
+
+class CitationMatchResult(ResponseObject):
+    
+    def __init__(self,response_text,data_for_response):
+        #ERRORS
+        #- NOT_FOUND;INVALID_JOURNAL
+        import pdb
+        pdb.set_trace()
+        pass
+
 class SearchResult(ResponseObject):
     
     #object_fields = {'ids':_to_list_text}    

@@ -1,0 +1,1 @@
+can we determine if a citation is outside of the scope of the indexed journal - i.e indexing started at a later time - and this not found in citmatch indicates journal not being indexed as opposed to bad meta
