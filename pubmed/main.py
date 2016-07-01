@@ -84,10 +84,26 @@ class Pubmed(object):
 
     def match_citations(self,citation_entries):
         """
-        Retrieves PubMed IDs (PMIDs) that correspond to a set of input citation strings.
+        Retrieves PubMed IDs (PMIDs) that correspond to a set of input 
+        citation strings.
 
+        Online Documentation:
         http://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ECitMatch
+        
+        Parameters
+        ----------
+        citation_entries : [CitationMatcherEntry] or CitationMatcherEntry        
+            An instance or list of instances of CitationMatcherEntry
+            
+        Example
+        -------
+        from pubmed import Pubmed, CitationMatcherEntry
+        api = Pubmed()        
+        citation = CitationMatcherEntry(jtitle='Bioinformatics',year=2015,volume=31,page1=3897)
+        matches = api.match_citations(citation)
         """
+        
+        
         
         #TODO: 1) termode not rettype- wrong documentation   
         #2 - post works
@@ -107,7 +123,7 @@ class Pubmed(object):
         
         #"key_{:03d}".format(i)
         temp_strings = [x.get_serialized("key_{:03d}".format(i)) for i,x in enumerate(citation_entries)]
-        query = '\r'.join(temp_strings)
+        query = '\n'.join(temp_strings)
         query_lengths = [len(x) for x in temp_strings]
         
         payload = {'db':'pubmed','retmode':'xml','bdata':query}     
@@ -118,7 +134,7 @@ class Pubmed(object):
         
         url = self.BASE_URL + 'ecitmatch.cgi' #+ '?db=pubmed&retmode=xml&bdata=' + query        
         
-        return self._make_post_request(url,payload,models.CitationMatchResult,data_for_response=data_for_response)
+        return self._make_post_request(url,payload,models.citation_match_parser,data_for_response=data_for_response)
 
     def fetch(self):
         pass

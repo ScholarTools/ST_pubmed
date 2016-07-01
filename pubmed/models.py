@@ -94,14 +94,48 @@ def _to_list_text(data):
     return [x.text for x in data]
 
 
-class CitationMatchResult(ResponseObject):
+def citation_match_parser(response_text,data_for_response):
     
-    def __init__(self,response_text,data_for_response):
-        #ERRORS
-        #- NOT_FOUND;INVALID_JOURNAL
+    """
+    Parameters
+    ----------
+    data_for_response : dict
+        .query_lengths
+        
+        #TODO: Add on # of queries
+    """
+    #EXAMPLE RESPONSES
+    #- '26315901'
+    #- NOT_FOUND;INVALID_JOURNAL
+    # 'AMBIGUOUS (783 citations)'
+    #- 'NOT_FOUND'
+
+    #Step 1 - get the response text for each entry
+    #----------------------------------------------
+    temp = response_text.splitlines() #split('\n')
+    for entry, query_length in zip(temp,data_for_response['query_lengths']):
+        #The +1 is assuming we don't place a | character in the request
+        #Current spec says this is required but currently it works without
+        #it, and as such we are not placing it
+        cur_response = entry[query_length+1:]
+        
+        
         import pdb
         pdb.set_trace()
+        #response_string = 
+    import pdb
+    pdb.set_trace()
+    pass
+    
+class CitationMatchResult(object):
+    
+    def __init__(self,response_text,entry):
+        self.found = True
+        
+        
+    def fix_errors():
         pass
+    
 
 class SearchResult(ResponseObject):
     
