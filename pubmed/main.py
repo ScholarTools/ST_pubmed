@@ -24,6 +24,17 @@ class CitationMatcherEntry(object):
         self.page1 = page1
         self.name = name
         self.key = key
+        
+        #TODO: We could distinguish between those that are not found due
+        #to a high liklihood vs those not found due to bad meta
+        #
+        #i.e. need page1 or name, otherwise finding answer is unlikely
+        #
+        #This would require a lot of logic ...
+        #
+        #   def enough_info() => could be used to display a warning to the user
+        #
+        #   LOW PRIORITY
     
     def get_serialized(self,alt_key=None):
         
@@ -113,9 +124,12 @@ class Pubmed(object):
         #5) end | required
         #6) no need to escape |, but you can
         
+        
         if citation_entries is list:
+            is_single = False
             pass
         else:
+            is_single = True
             citation_entries = [citation_entries]
             
         #import pdb
@@ -132,7 +146,8 @@ class Pubmed(object):
         
         data_for_response = {
             'query_lengths':query_lengths,
-            'entries':citation_entries}
+            'entries':citation_entries,
+            'is_single':is_single}
         
         url = self._BASE_URL + 'ecitmatch.cgi'        
         

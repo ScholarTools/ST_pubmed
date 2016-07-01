@@ -105,26 +105,37 @@ def citation_match_parser(response_text,data_for_response):
         #TODO: Add on # of queries
     """
 
+    d = data_for_response
+
     output = []
     lines = response_text.splitlines() #split('\n')
-    for entry, query_length in zip(lines,data_for_response['query_lengths']):
+    for line_text, query_length,cur_entry in zip(lines,d['query_lengths'],d['entries']):
         #The +1 is assuming we don't place a | character in the request
         #Current spec says this is required but currently it works without
         #it, and as such we are not placing it
-        cur_response = entry[query_length+1:]
+        cur_response = line_text[query_length+1:]
+        output.append(CitationMatchResult(cur_response,cur_entry))
         
-        
-        import pdb
-        pdb.set_trace()
-        #response_string = 
-    import pdb
-    pdb.set_trace()
-    pass
+    if d['is_single']:
+        return output[0]
+    else:
+        return output
     
 class CitationMatchResult(object):
     
     def __init__(self,response_text,entry):
-        self.found = True
+        self.found = response_text[0].isdigit()
+        self.entry = entry
+        self.raw = response_text
+        
+        if self.found:
+            self.id = self.raw
+        else:
+            self.id = None
+            
+        #self.is_ambiguous = ...
+            
+        #Could do a 
 
     #EXAMPLE RESPONSES
     #- '26315901'
@@ -133,6 +144,7 @@ class CitationMatchResult(object):
     #- 'NOT_FOUND'       
         
     def fix_errors():
+        #Could try and resolve a journal
         pass
     
 
