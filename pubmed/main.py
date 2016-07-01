@@ -50,7 +50,7 @@ class CitationMatcherEntry(object):
 
 class Pubmed(object):
     
-    BASE_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'    
+    _BASE_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'    
     
     def __init__(self):
         
@@ -130,9 +130,11 @@ class Pubmed(object):
         
         
         
-        data_for_response = {'query_lengths':query_lengths}
+        data_for_response = {
+            'query_lengths':query_lengths,
+            'entries':citation_entries}
         
-        url = self.BASE_URL + 'ecitmatch.cgi' #+ '?db=pubmed&retmode=xml&bdata=' + query        
+        url = self._BASE_URL + 'ecitmatch.cgi'        
         
         return self._make_post_request(url,payload,models.citation_match_parser,data_for_response=data_for_response)
 

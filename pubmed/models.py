@@ -104,16 +104,10 @@ def citation_match_parser(response_text,data_for_response):
         
         #TODO: Add on # of queries
     """
-    #EXAMPLE RESPONSES
-    #- '26315901'
-    #- NOT_FOUND;INVALID_JOURNAL
-    # 'AMBIGUOUS (783 citations)'
-    #- 'NOT_FOUND'
 
-    #Step 1 - get the response text for each entry
-    #----------------------------------------------
-    temp = response_text.splitlines() #split('\n')
-    for entry, query_length in zip(temp,data_for_response['query_lengths']):
+    output = []
+    lines = response_text.splitlines() #split('\n')
+    for entry, query_length in zip(lines,data_for_response['query_lengths']):
         #The +1 is assuming we don't place a | character in the request
         #Current spec says this is required but currently it works without
         #it, and as such we are not placing it
@@ -131,13 +125,28 @@ class CitationMatchResult(object):
     
     def __init__(self,response_text,entry):
         self.found = True
-        
+
+    #EXAMPLE RESPONSES
+    #- '26315901'
+    #- NOT_FOUND;INVALID_JOURNAL
+    # 'AMBIGUOUS (783 citations)'
+    #- 'NOT_FOUND'       
         
     def fix_errors():
         pass
     
 
 class SearchResult(ResponseObject):
+    
+    """    
+    Response to esearch()      
+    
+    Attributes
+    ----------
+        
+    
+    
+    """
     
     #object_fields = {'ids':_to_list_text}    
     
