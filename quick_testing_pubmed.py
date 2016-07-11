@@ -2,7 +2,7 @@
 """
 """
 
-from pubmed.main import Pubmed, CitationMatcherEntry
+from pubmed import Pubmed, CitationMatcherEntry
 
 api = Pubmed()
 
