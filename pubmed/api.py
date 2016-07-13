@@ -12,6 +12,7 @@ import lxml
 
 #Local
 from . import models
+from . import config
 
 #TODO: Ask about class name calling methods
 
@@ -71,9 +72,14 @@ class Pubmed(object):
 
     def _make_post_request(self,url,data,handler,as_json=False,data_for_response=None):
         
-        #TODO: Include email and tool option
+        #TODO: make generic for get and post        
+        
         
         #TODO: Not working, can't escape the | values in the data        
+        
+        if config.email is not None:
+            data['email'] = config.email
+            data['tool'] = config.tool
         
         
         #TODO: Not sure if post is allowed, doesn't explicitly allow

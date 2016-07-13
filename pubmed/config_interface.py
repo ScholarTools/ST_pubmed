@@ -29,5 +29,12 @@ if hasattr(config,'config_location'):
 class Config(object):
     
     def __init__(self):        
-        self.email = config.get('email',None)
-        self.tool = config.get('tool',None)
+        self.email = _get(config,'email',None)
+        self.tool = _get(config,'tool',None)
+        
+def _get(module,name,default_value):
+
+    if hasattr(module,name):
+        return getattr(module,name)
+    else:
+        return default_value
