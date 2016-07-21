@@ -2,7 +2,12 @@
 """
 """
 
-def property_values_to_string(pv):
+def display_class(class_instance,pv):
+    
+    #Do we want to to specify the full path to the class ...?
+    return '%s:\n' % type(class_instance) + property_values_to_string(pv,extra_indentation=4)
+
+def property_values_to_string(pv,extra_indentation = 0):
     """
     Parameters
     ----------
@@ -16,7 +21,7 @@ def property_values_to_string(pv):
     values = pv[1::2]
 
     key_lengths = [len(x) for x in keys]
-    max_key_length = max(key_lengths)
+    max_key_length = max(key_lengths) + extra_indentation
     space_padding = [max_key_length - x for x in key_lengths]
     key_display_strings = [' ' * x + y for x, y in zip(space_padding, keys)]
 

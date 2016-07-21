@@ -2,10 +2,14 @@
 """
 """
 
+from lxml import objectify
+from bs4 import BeautifulSoup
+
 #Local Imports
-from .utils import get_truncated_display_string as td
-from .utils import get_list_class_display as cld
-from .utils import property_values_to_string as pv
+from . import utils
+display_class = utils.display_class
+td = utils.get_truncated_display_string
+cld = utils.get_list_class_display
 
 class ResponseObject(object):
     # I made this a property so that the user could change this processing
@@ -120,6 +124,17 @@ def citation_match_parser(response_text,data_for_response):
         return output[0]
     else:
         return output
+
+class DocumentSet(object):
+    
+    def __init__(self,data):
+        
+        temp = _make_soup(data)
+        #-pubmed_article
+        articles = temp.find_all('PubmedArticle')
+        
+        import pdb
+        pdb.set_trace()
     
 class CitationMatchResult(object):
     
@@ -147,6 +162,15 @@ class CitationMatchResult(object):
         #Could try and resolve a journal
         pass
     
+    def __repr__(self):
+        return display_class(self,['found',self.found,'entry',cld(self.entry),
+                   'raw',self.raw,'id',self.id])
+    
+class PMIDToPMCLinkSet(object):
+
+    def __init__(self,response_text):
+        import pdb
+        pdb.set_trace()
 
 class SearchResult(ResponseObject):
     
@@ -197,3 +221,7 @@ class SearchResult(ResponseObject):
         'querykey',self.querykey,
         'webenv',self.webenv])
         
+
+def _make_soup(data):
+    
+    return BeautifulSoup(data,'lxml')

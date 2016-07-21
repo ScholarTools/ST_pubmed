@@ -60,7 +60,7 @@ class CitationMatcherEntry(object):
         return str
     """
 
-class Pubmed(object):
+class API(object):
     
     _BASE_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'    
     
@@ -69,24 +69,21 @@ class Pubmed(object):
         #tool and email        
         
         self.session = requests.session()
+        self.links = Links(self)
 
-    def _make_post_request(self,url,data,handler,as_json=False,data_for_response=None):
-        
-        #TODO: make generic for get and post        
-        
-        
-        #TODO: Not working, can't escape the | values in the data        
+    def _make_request(self,method,url,handler,data=None,params=None,as_json=False,data_for_response=None): 
         
         if config.email is not None:
-            data['email'] = config.email
-            data['tool'] = config.tool
+            if method.upper() == 'POST':
+                data['email'] = config.email
+                data['tool'] = config.tool
+            else:
+                params['email'] = config.email
+                params['tool'] = config.tool
         
-        
-        #TODO: Not sure if post is allowed, doesn't explicitly allow
-        #but others support POST when request is long
-        resp = self.session.post(url,data=data)
+        resp = self.session.request(method,url,params=params,data=data)        
 
-        #TODO: Check response state
+        #TODO: Check response state - what are we expecting ?????
 
         if as_json:
             if data_for_response is None:
@@ -120,8 +117,6 @@ class Pubmed(object):
         matches = api.match_citations(citation)
         """
         
-        
-        
         #TODO: 1) termode not rettype- wrong documentation   
         #2 - post works
         #3) retype goes to batch matching gui with 200 
@@ -148,8 +143,6 @@ class Pubmed(object):
         
         payload = {'db':'pubmed','retmode':'xml','bdata':query}     
         
-        
-        
         data_for_response = {
             'query_lengths':query_lengths,
             'entries':citation_entries,
@@ -157,10 +150,39 @@ class Pubmed(object):
         
         url = self._BASE_URL + 'ecitmatch.cgi'        
         
-        return self._make_post_request(url,payload,models.citation_match_parser,data_for_response=data_for_response)
+        return self._make_request('POST',url,models.citation_match_parser,data=payload,data_for_response=data_for_response)
 
-    def fetch(self):
-        pass
+    def fetch(self,id_list,db='pubmed'):
+        """
+        Function documentation at:
+        http://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.EFetch
+        """
+        
+        #TODO: Support PMC
+        
+        """
+             rettype retmode
+        text       null   asn.1
+        xml         null   xml
+        medline    medline text
+        pmid list  uilist text
+        abstract   abstract text
+        """
+        
+        id_string = ','.join(id_list)
+        
+        payload = {'db':'pubmed','id':id_string,'retmode':'xml'}
+
+        url = self._BASE_URL + 'efetch.cgi'  
+
+        return self._make_request('POST',url,models.DocumentSet,data=payload)
+        
+    
+    def links(self,ids):
+        
+        """
+        http://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ELink
+        """
     
     def search(self,query,**kwargs):
         """
@@ -214,3 +236,21 @@ class Pubmed(object):
         
         #temp = lxml.etree.fromstring(response.content)
         return models.SearchResult(response.json())
+        
+class Links(object):
+    
+    def __init__(self,parent):
+        self.parent = parent
+        
+    def pmid_to_pmc(self,pmids):
+        id_param = ','.join(pmids)
+        params = {'dbfrom':'pubmed','db':'pmc','id':id_param}
+        return self._make_link_request(params,models.PMIDToPMCLinkSet)
+    
+    def pmc_to_pmid(self,pmc_ids):
+        pass
+    
+    def _make_link_request(self,params,handler):
+        
+        url = self.parent._BASE_URL + 'elink.fcgi'
+        return self.parent._make_request('POST',url,handler,data=params)

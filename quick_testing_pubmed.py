@@ -2,9 +2,9 @@
 """
 """
 
-from pubmed import Pubmed, CitationMatcherEntry
+from pubmed import API, CitationMatcherEntry
 
-api = Pubmed()
+api = API()
 
 #temp = api.search('Mountcastle') #,usehistory='n')
 
