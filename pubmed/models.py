@@ -10,6 +10,7 @@ from . import utils
 display_class = utils.display_class
 td = utils.get_truncated_display_string
 cld = utils.get_list_class_display
+pv = utils.property_values_to_string
 
 class ResponseObject(object):
     # I made this a property so that the user could change this processing
@@ -158,7 +159,7 @@ class CitationMatchResult(object):
     # 'AMBIGUOUS (783 citations)'
     #- 'NOT_FOUND'       
         
-    def fix_errors():
+    def fix_errors(self):
         #Could try and resolve a journal
         pass
     

@@ -6,7 +6,7 @@
 import os
 import importlib.machinery #Python 3.3+
 
-from .errors import InvalidConfig
+from .errors import *
 
 try:
     from . import user_config as config
