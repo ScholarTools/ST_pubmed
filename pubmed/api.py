@@ -1,24 +1,58 @@
 # -*- coding: utf-8 -*-
 """
 http://www.ncbi.nlm.nih.gov/books/NBK25499/
+
+API Release Notes
+http://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.Release_Notes
+
 """
 
 #Standard Library
-import xml
 
 #Third Party
 import requests
-import lxml
 
 #Local
 from . import models
 from . import config
 
-#TODO: Ask about class name calling methods
 
 class CitationMatcherEntry(object):
     
     def __init__(self,jtitle=None,year=None,volume=None,page1=None,name=None,key=None):
+        """
+        Constructs an entry for citation matching        
+        
+        Online Documentation:
+        http://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ECitMatch     
+        
+        Online implementations:
+        -----------------------
+        http://www.ncbi.nlm.nih.gov/pubmed/batchcitmatch
+        
+        
+        Parameters
+        ----------
+        jtitle : string
+            TODO: How sensitive is this to style? J Urol vs the Journal of Urology?
+        year : string
+        volume : string
+        page1 : string
+            The first page of the publication
+        name : string
+            Author name. Currently this is not limited to a specific author
+            although the ability to limit this to a specific author may be
+            possible eventually
+        key : string
+            Use for identifying this entry later on.
+            
+        Questions
+        ---------
+        1) Can we provide multiple authors?
+        2) Can we specify an author role
+            
+            
+        """
         self.jtitle = jtitle
         self.year = year
         self.volume = volume
@@ -104,6 +138,10 @@ class API(object):
         Online Documentation:
         http://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ECitMatch
         
+        Others:
+        -------
+        http://www.ncbi.nlm.nih.gov/pubmed/citmatch - supports only as first or last author matching
+        
         Parameters
         ----------
         citation_entries : [CitationMatcherEntry] or CitationMatcherEntry        
@@ -115,14 +153,19 @@ class API(object):
         api = Pubmed()        
         citation = CitationMatcherEntry(jtitle='Bioinformatics',year=2015,volume=31,page1=3897)
         matches = api.match_citations(citation)
+        
+        Returns
+        -------
+        models.CitationMatchResult - a list of entries is returned if the input 
+        to this function is a list
         """
         
-        #TODO: 1) termode not rettype- wrong documentation   
-        #2 - post works
+        #TODO: 1) retmode not rettype- wrong documentation   
+        #2 - post works (this isn't stated in documentation)
         #3) retype goes to batch matching gui with 200 
-        #http://www.ncbi.nlm.nih.gov/pubmed/batchcitmatch?status=0
-        #4) xml - no
-        #5) end | required
+        #   http://www.ncbi.nlm.nih.gov/pubmed/batchcitmatch?status=0
+        #4) xml - this isn't xml
+        #5) end | not actually required, even though explicity stated as such
         #6) no need to escape |, but you can
         
         

@@ -12,6 +12,88 @@ td = utils.get_truncated_display_string
 cld = utils.get_list_class_display
 pv = utils.property_values_to_string
 
+class XMLResponseObject(object):
+    # I made this a property so that the user could change this processing
+    # if they wanted. For example, this would allow the user to return authors
+    # as just the raw json (from a document) rather than creating a list of
+    # Persons
+    object_fields = {}
+    
+    #Name mapping, keys are new, values are old
+    renamed_fields = {}
+    
+    fields = []
+
+    def __init__(self, xml):
+        """
+        This class stores the raw JSON in case an attribute from this instance
+        is requested. The attribute is accessed via the __getattr__ method.
+
+        This design was chosen instead of one which tranfers each JSON object
+        key into an attribute. This design decision means that we don't spend
+        time populating an object where we only want a single attribute.
+        
+        Note that the request methods should also support returning the raw JSON.
+        """
+        
+        #TODO: Check count, ensure unique values
+        #self.xml_dict = {x.tag:x for x in xml} 
+        self.xml = xml
+        
+    def __getattr__(self, name):
+
+        """
+        By checking for the name in the list of fields, we allow returning
+        a "None" value for attributes that are not present in the JSON. By
+        forcing each class to define the fields that are valid we ensure that
+        spelling errors don't return none:
+        e.g. document.yeear <= instead of document.year
+        """
+        
+        #TODO: We need to support renaming
+        #i.e. 
+        if name in self.fields:
+            new_name = name
+        elif name in self.renamed_fields:
+            new_name = name #Do we want to do object lookup on the new name?
+            name = self.renamed_fields[name]
+        else:
+            raise AttributeError("'%s' object has no attribute '%s'" % (self.__class__.__name__, name))
+          
+        value = self.json.get(name)        
+          
+        #We don't call object construction methods on None values
+        if value is None:
+            return None
+        elif new_name in self.object_fields:
+            #Here we return the value after passing it to a method
+            #fh => function handle
+            #
+            #Only the value is explicitly passed in
+            #Any other information needs to be explicitly bound
+            #to the method
+            method_fh = self.object_fields[new_name]
+            return method_fh(value)
+        else:
+            return value
+
+            
+
+    @classmethod
+    def __dir__(cls):
+        d = set(dir(cls) + cls.fields())
+        d.remove('fields')
+        d.remove('object_fields')
+
+        return sorted(d)
+
+    @classmethod
+    def fields(cls):
+        """
+        This should be overloaded by the subclass.
+        """
+        return []
+
 class ResponseObject(object):
     # I made this a property so that the user could change this processing
     # if they wanted. For example, this would allow the user to return authors
@@ -131,11 +213,52 @@ class DocumentSet(object):
     def __init__(self,data):
         
         temp = _make_soup(data)
-        #-pubmed_article
-        articles = temp.find_all('PubmedArticle')
         
+        doc_type = temp.contents[0]
+        #TODO: 
+        #1) Verify s4.element.Doctype
+        #2) Parse out Dtd
+        #3) Verify code is up to date for DTD
+        #Ex.
+        #'Pubmedarticleset Public "-//Nlm//Dtd Pubmedarticle, 1St January 2016//En" "Http://Www.Ncbi.Nlm.Nih.Gov/Corehtml/Query/Dtd/Pubmed_160101.Dtd"'
+        
+        
+        #Hierarchy:
+        #----------
+        #pubmedarticleset
+        #pubmedarticle
+        articles = temp.find_all('pubmedarticle')
+        
+        self.docs = [TempPubmedEntry(x) for x in articles]
+        
+        #Retrieves child tags and ignores navigable strings (in these examples the strings are newlines)
+        #children = articles[0].find_all(True, recursive=False)
+        
+        
+class TempPubmedEntry(object):
+    
+    def __init__(self,soup):
+        self.soup = soup
+
+    def parse(self):
+        #TODO: Return the instantiated document
+        #We could maybe allow:
+        #1) Lazy attributes - quick single attribuet access, slower for everything
+        #2) Complete object - slower for few attribute access, faster for everything
+        pass
+        return PubmedEntryLazyAttributes(self.soup)
+    
+class PubmedEntryLazyAttributes(XMLResponseObject):
+    
+    def __init__(self,soup):
+        super().__init__(soup)
         import pdb
         pdb.set_trace()
+        
+        children = soup.find_all(True, recursive=False)
+        
+        #medlinecitation
+        #pubmeddata
     
 class CitationMatchResult(object):
     
@@ -221,7 +344,6 @@ class SearchResult(ResponseObject):
         'translation_stack',self.translation_stack,
         'querykey',self.querykey,
         'webenv',self.webenv])
-        
 
 def _make_soup(data):
     

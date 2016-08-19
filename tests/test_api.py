@@ -13,15 +13,17 @@ api = API()
 
 #Citaton Matching
 #------------------
-entry = CitationMatcherEntry(jtitle='Bioinformatics',year=2015,volume=31,page1=3897)
-result = api.match_citations(entry)
-
-print(result)    
+#entry = CitationMatcherEntry(jtitle='Bioinformatics',year=2015,volume=31,page1=3897)
+#result = api.match_citations(entry)
+#print(result)    
 
 #Info fetching
 #--------------
 ids = ['11850928','11482001']
 result = api.fetch(ids)
+result.docs[0].parse()
+import pdb
+pdb.set_trace()
 
 #Link Testing
 #------------
