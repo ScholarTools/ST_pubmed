@@ -5,12 +5,13 @@
 from lxml import objectify
 from bs4 import BeautifulSoup
 
-#Local Imports
+# Local Imports
 from . import utils
 display_class = utils.display_class
 td = utils.get_truncated_display_string
 cld = utils.get_list_class_display
 pv = utils.property_values_to_string
+
 
 class XMLResponseObject(object):
     # I made this a property so that the user could change this processing
@@ -19,7 +20,7 @@ class XMLResponseObject(object):
     # Persons
     object_fields = {}
     
-    #Name mapping, keys are new, values are old
+    # Name mapping, keys are new, values are old
     renamed_fields = {}
     
     fields = []
@@ -36,8 +37,8 @@ class XMLResponseObject(object):
         Note that the request methods should also support returning the raw JSON.
         """
         
-        #TODO: Check count, ensure unique values
-        #self.xml_dict = {x.tag:x for x in xml} 
+        # TODO: Check count, ensure unique values
+        # self.xml_dict = {x.tag:x for x in xml}
         self.xml = xml
         
     def __getattr__(self, name):
@@ -50,34 +51,32 @@ class XMLResponseObject(object):
         e.g. document.yeear <= instead of document.year
         """
         
-        #TODO: We need to support renaming
-        #i.e. 
+        # TODO: We need to support renaming
+        # i.e.
         if name in self.fields:
             new_name = name
         elif name in self.renamed_fields:
-            new_name = name #Do we want to do object lookup on the new name?
+            new_name = name  # Do we want to do object lookup on the new name?
             name = self.renamed_fields[name]
         else:
             raise AttributeError("'%s' object has no attribute '%s'" % (self.__class__.__name__, name))
           
         value = self.json.get(name)        
           
-        #We don't call object construction methods on None values
+        # We don't call object construction methods on None values
         if value is None:
             return None
         elif new_name in self.object_fields:
-            #Here we return the value after passing it to a method
-            #fh => function handle
+            # Here we return the value after passing it to a method
+            # fh => function handle
             #
-            #Only the value is explicitly passed in
-            #Any other information needs to be explicitly bound
-            #to the method
+            # Only the value is explicitly passed in
+            # Any other information needs to be explicitly bound
+            # to the method
             method_fh = self.object_fields[new_name]
             return method_fh(value)
         else:
             return value
-
-            
 
     @classmethod
     def __dir__(cls):
@@ -94,6 +93,7 @@ class XMLResponseObject(object):
         """
         return []
 
+
 class ResponseObject(object):
     # I made this a property so that the user could change this processing
     # if they wanted. For example, this would allow the user to return authors
@@ -101,7 +101,7 @@ class ResponseObject(object):
     # Persons
     object_fields = {}
     
-    #Name mapping, keys are new, values are old
+    # Name mapping, keys are new, values are old
     renamed_fields = {}
     
     fields = []
@@ -118,8 +118,8 @@ class ResponseObject(object):
         Note that the request methods should also support returning the raw JSON.
         """
         
-        #TODO: Check count, ensure unique values
-        #self.xml_dict = {x.tag:x for x in xml} 
+        # TODO: Check count, ensure unique values
+        # self.xml_dict = {x.tag:x for x in xml}
         self.json = json
         
     def __getattr__(self, name):
@@ -132,34 +132,32 @@ class ResponseObject(object):
         e.g. document.yeear <= instead of document.year
         """
         
-        #TODO: We need to support renaming
-        #i.e. 
+        # TODO: We need to support renaming
+        # i.e.
         if name in self.fields:
             new_name = name
         elif name in self.renamed_fields:
-            new_name = name #Do we want to do object lookup on the new name?
+            new_name = name  # Do we want to do object lookup on the new name?
             name = self.renamed_fields[name]
         else:
             raise AttributeError("'%s' object has no attribute '%s'" % (self.__class__.__name__, name))
           
         value = self.json.get(name)        
           
-        #We don't call object construction methods on None values
+        # We don't call object construction methods on None values
         if value is None:
             return None
         elif new_name in self.object_fields:
-            #Here we return the value after passing it to a method
-            #fh => function handle
+            # Here we return the value after passing it to a method
+            # fh => function handle
             #
-            #Only the value is explicitly passed in
-            #Any other information needs to be explicitly bound
-            #to the method
+            # Only the value is explicitly passed in
+            # Any other information needs to be explicitly bound
+            # to the method
             method_fh = self.object_fields[new_name]
             return method_fh(value)
         else:
             return value
-
-            
 
     @classmethod
     def __dir__(cls):
@@ -176,12 +174,13 @@ class ResponseObject(object):
         """
         return []
 
+
 def _to_list_text(data):
     
     return [x.text for x in data]
 
 
-def citation_match_parser(response_text,data_for_response):
+def citation_match_parser(response_text, data_for_response):
     
     """
     Parameters
@@ -195,59 +194,61 @@ def citation_match_parser(response_text,data_for_response):
     d = data_for_response
 
     output = []
-    lines = response_text.splitlines() #split('\n')
-    for line_text, query_length,cur_entry in zip(lines,d['query_lengths'],d['entries']):
-        #The +1 is assuming we don't place a | character in the request
-        #Current spec says this is required but currently it works without
-        #it, and as such we are not placing it
+    lines = response_text.splitlines()  # split('\n')
+    for line_text, query_length, cur_entry in zip(lines, d['query_lengths'], d['entries']):
+        # The +1 is assuming we don't place a | character in the request
+        # Current spec says this is required but currently it works without
+        # it, and as such we are not placing it
         cur_response = line_text[query_length+1:]
-        output.append(CitationMatchResult(cur_response,cur_entry))
+        output.append(CitationMatchResult(cur_response, cur_entry))
         
     if d['is_single']:
         return output[0]
     else:
         return output
 
+
 class DocumentSet(object):
     
-    def __init__(self,data):
+    def __init__(self, data):
         
         temp = _make_soup(data)
         
         doc_type = temp.contents[0]
-        #TODO: 
-        #1) Verify s4.element.Doctype
-        #2) Parse out Dtd
-        #3) Verify code is up to date for DTD
-        #Ex.
-        #'Pubmedarticleset Public "-//Nlm//Dtd Pubmedarticle, 1St January 2016//En" "Http://Www.Ncbi.Nlm.Nih.Gov/Corehtml/Query/Dtd/Pubmed_160101.Dtd"'
-        
-        
-        #Hierarchy:
-        #----------
-        #pubmedarticleset
-        #pubmedarticle
+        # TODO:
+        # 1) Verify s4.element.Doctype
+        # 2) Parse out Dtd
+        # 3) Verify code is up to date for DTD
+        # Ex.
+        # 'Pubmedarticleset Public "-//Nlm//Dtd Pubmedarticle, 1St January 2016//En"
+        # "Http://Www.Ncbi.Nlm.Nih.Gov/Corehtml/Query/Dtd/Pubmed_160101.Dtd"'
+
+        # Hierarchy:
+        # ----------
+        # pubmedarticleset
+        # pubmedarticle
         articles = temp.find_all('pubmedarticle')
         
         self.docs = [TempPubmedEntry(x) for x in articles]
         
-        #Retrieves child tags and ignores navigable strings (in these examples the strings are newlines)
-        #children = articles[0].find_all(True, recursive=False)
+        # Retrieves child tags and ignores navigable strings (in these examples the strings are newlines)
+        # children = articles[0].find_all(True, recursive=False)
         
         
 class TempPubmedEntry(object):
     
-    def __init__(self,soup):
+    def __init__(self, soup):
         self.soup = soup
 
     def parse(self):
-        #TODO: Return the instantiated document
-        #We could maybe allow:
-        #1) Lazy attributes - quick single attribuet access, slower for everything
-        #2) Complete object - slower for few attribute access, faster for everything
+        # TODO: Return the instantiated document
+        # We could maybe allow:
+        # 1) Lazy attributes - quick single attribuet access, slower for everything
+        # 2) Complete object - slower for few attribute access, faster for everything
         pass
         return PubmedEntryLazyAttributes(self.soup)
-    
+
+
 class PubmedEntryLazyAttributes(XMLResponseObject):
     
     def __init__(self,soup):
@@ -257,9 +258,10 @@ class PubmedEntryLazyAttributes(XMLResponseObject):
         
         children = soup.find_all(True, recursive=False)
         
-        #medlinecitation
-        #pubmeddata
-    
+        # medlinecitation
+        # pubmeddata
+
+
 class CitationMatchResult(object):
     
     def __init__(self,response_text,entry):
@@ -272,29 +274,31 @@ class CitationMatchResult(object):
         else:
             self.id = None
             
-        #self.is_ambiguous = ...
+        # self.is_ambiguous = ...
             
-        #Could do a 
+        # Could do a
 
-    #EXAMPLE RESPONSES
-    #- '26315901'
-    #- NOT_FOUND;INVALID_JOURNAL
+    # EXAMPLE RESPONSES
+    # - '26315901'
+    # - NOT_FOUND;INVALID_JOURNAL
     # 'AMBIGUOUS (783 citations)'
-    #- 'NOT_FOUND'       
+    # - 'NOT_FOUND'
         
     def fix_errors(self):
-        #Could try and resolve a journal
+        # Could try and resolve a journal
         pass
     
     def __repr__(self):
-        return display_class(self,['found',self.found,'entry',cld(self.entry),
-                   'raw',self.raw,'id',self.id])
-    
+        return display_class(self,['found', self.found, 'entry', cld(self.entry),
+                                   'raw', self.raw, 'id', self.id])
+
+
 class PMIDToPMCLinkSet(object):
 
-    def __init__(self,response_text):
+    def __init__(self, response_text):
         import pdb
         pdb.set_trace()
+
 
 class SearchResult(ResponseObject):
     
@@ -308,30 +312,30 @@ class SearchResult(ResponseObject):
     
     """
     
-    #object_fields = {'ids':_to_list_text}    
+    # object_fields = {'ids':_to_list_text}
     
     renamed_fields = {
-    'ids':'idlist',
-    'translation_set':'translationset',
-    'ret_start':'retstart',
-    'ret_max':'retmax',
-    'query_translation':'querytranslation',
-    'translation_stack':'translationstack'}
+    'ids': 'idlist',
+    'translation_set': 'translationset',
+    'ret_start': 'retstart',
+    'ret_max': 'retmax',
+    'query_translation': 'querytranslation',
+    'translation_stack': 'translationstack'}
     
-    fields = ['version','count','querykey','webenv']
+    fields = ['version', 'count', 'querykey', 'webenv']
     
     def __init__(self,json):
         
-        #querykey
-        #webenv
+        # querykey
+        # webenv
         
-        #The input json has 2 things, header and esearchresult
-        #The header only specifies the object type and version
+        # The input json has 2 things, header and esearchresult
+        # The header only specifies the object type and version
         self.version = json['header']['version']        
         
         super(SearchResult, self).__init__(json['esearchresult'])       
         
-    #TODO: Include navigation methods        
+    # TODO: Include navigation methods
         
     def __repr__(self):
         return pv([
@@ -344,6 +348,7 @@ class SearchResult(ResponseObject):
         'translation_stack',self.translation_stack,
         'querykey',self.querykey,
         'webenv',self.webenv])
+
 
 def _make_soup(data):
     
