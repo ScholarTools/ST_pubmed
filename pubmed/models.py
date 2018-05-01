@@ -12,6 +12,18 @@ td = utils.get_truncated_display_string
 cld = utils.get_list_class_display
 pv = utils.property_values_to_string
 
+#---- Common
+#====================================
+def pass_through(json):
+    return json
+
+#---- EInfo
+#===================================
+def get_db_list(json):
+    return json['einforesult']['dblist']
+    
+#---- Uncatagorized
+#====================================
 
 class XMLResponseObject(object):
     # I made this a property so that the user could change this processing
@@ -207,8 +219,42 @@ def citation_match_parser(response_text, data_for_response):
     else:
         return output
 
+class SummaryResult(object):
+    
+    """
+    
+    """
+    def __init__(self,data):
+        
+        self.raw = data
+        #An error may yield:
+        #   - esummaryresult
+        self.result = data.get('result')
+        if self.result is not None:
+            #Result contains the following fields:
+            #1) 'uids'
+            #2) fields that are the uids
+            self.ids = self.result.get('uids')
+            self.docs = [self.result[x] for x in self.ids]
+        else:
+            self.ids = None
+            self.docs = None
+            
+    def __repr__(self):
+        return display_class(self,
+                ['result', td(str(self.result)), 
+                 'docs', cld(self.docs),
+                 'raw', td(str(self.raw)), 
+                 'ids', td(str(self.ids))])
+            
 
 class DocumentSet(object):
+    """
+    
+    See Also
+    --------
+    pubmed.api.API.fetch
+    """
     
     def __init__(self, data):
         
@@ -243,7 +289,7 @@ class TempPubmedEntry(object):
     def parse(self):
         # TODO: Return the instantiated document
         # We could maybe allow:
-        # 1) Lazy attributes - quick single attribuet access, slower for everything
+        # 1) Lazy attributes - quick single attribute access, slower for everything
         # 2) Complete object - slower for few attribute access, faster for everything
         pass
         return PubmedEntryLazyAttributes(self.soup)
@@ -263,6 +309,14 @@ class PubmedEntryLazyAttributes(XMLResponseObject):
 
 
 class CitationMatchResult(object):
+    
+    """
+    
+    See Also
+    --------
+    pubmed.api.CitationMatcherEntry
+    pubmed.api.API.match_citations
+    """
     
     def __init__(self,response_text,entry):
         self.found = response_text[0].isdigit()
@@ -289,8 +343,11 @@ class CitationMatchResult(object):
         pass
     
     def __repr__(self):
-        return display_class(self,['found', self.found, 'entry', cld(self.entry),
-                                   'raw', self.raw, 'id', self.id])
+        return display_class(self,
+                ['found', self.found, 
+                 'entry', cld(self.entry),
+                 'raw', self.raw, 
+                 'id', self.id])
 
 
 class PMIDToPMCLinkSet(object):

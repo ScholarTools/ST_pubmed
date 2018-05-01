@@ -1,0 +1,7 @@
+
+#Rename to user_config.py and update
+
+email = ''
+
+#This is optional:
+#tool = 'Scholar Tools'

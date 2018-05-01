@@ -6,13 +6,13 @@
 import os
 import importlib.machinery #Python 3.3+
 
-from .errors import *
+from . import errors
 
 try:
     from . import user_config as config
 except ImportError:
-    config = {}
-    #raise errors.InvalidConfig('user_config.py not found')
+    #config = {}
+    raise errors.InvalidConfig('user_config.py not found')
         
       
 if hasattr(config,'config_location'):
@@ -20,7 +20,7 @@ if hasattr(config,'config_location'):
     config_location = config.config_location
     
     if not os.path.exists(config_location):
-        raise InvalidConfig('Specified configuration path does not exist')
+        raise errors.InvalidConfig('Specified configuration path does not exist')
     
     loader = importlib.machinery.SourceFileLoader('config', config_location)    
     config = loader.load_module()
@@ -30,7 +30,7 @@ class Config(object):
     
     def __init__(self):        
         self.email = _get(config,'email',None)
-        self.tool = _get(config,'tool',None)
+        self.tool = _get(config,'tool','Python Scholar Tools')
         
 def _get(module,name,default_value):
 
