@@ -179,12 +179,11 @@ class ResponseObject(object):
 
         return sorted(d)
 
-    @classmethod
-    def fields(cls):
+    def fields(self):
         """
         This should be overloaded by the subclass.
         """
-        return []
+        return self.json.keys()
 
 
 def _to_list_text(data):

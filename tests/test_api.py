@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Status:
-    Slowly working on updating api and 
+    Slowly working on updating api and theses tests
 """
 
 #import os
@@ -9,7 +9,7 @@ Status:
 #sys.path.insert(0, os.path.abspath('..'))
 
 from pubmed import API, CitationMatcherEntry
-api = API()
+api = API(debug=True)
 
 #---- ID Matching
 #======================================
