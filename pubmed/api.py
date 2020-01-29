@@ -24,11 +24,21 @@ import requests
 #Local
 from . import models
 from . import config
+from . import utils
+
+from .utils import get_truncated_display_string as td
+from .utils import get_list_class_display as cldc
 
 
 class CitationMatcherEntry(object):
     
-    def __init__(self,jtitle=None,year=None,volume=None,page1=None,name=None,key=None):
+    def __init__(self,
+                 jtitle=None,
+                 year=None,
+                 volume=None,
+                 page1=None,
+                 name=None,
+                 key=None):
         """
         Constructs an entry for citation matching        
         
@@ -100,26 +110,43 @@ class CitationMatcherEntry(object):
         #Documentation says they should end with a | but it doesn't seem to matter
         return '|'.join(values)
 
-    """
+
     def __repr__(self):
+        pv = ['jtitle',self.journal_title,
+              'key',self.key,
+              'name',self.name,
+              'page1',self.page1,
+              'volume',self.volume,
+              'year',self.year]
+        return utils.property_values_to_string(pv)
         str = u'' + \
             'year: %s' % self.year
             
         return str
-    """
+
 
 class API(object):
     
     _BASE_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'    
     
-    def __init__(self):
+    def __init__(self,verbose=False):
+
+
+        self.verbose = verbose
         
         #tool and email        
         
         self.session = requests.session()
         self.links = Links(self)
 
-    def _make_request(self,method,url,handler,data=None,params=None,data_for_response=None,as_json=False): 
+    def _make_request(self,
+                      method,
+                      url,
+                      handler,
+                      data=None,
+                      params=None,
+                      data_for_response=None,
+                      as_json=False):
         """
         
         params - for URL
@@ -166,8 +193,16 @@ class API(object):
                 return handler(resp.text,data_for_response)
             
     #---- IDs API --------------------
-    def get_ids_from_doi(self,doi_or_dois,pmid_only=True):
+    def get_ids_from_doi(self,
+                         doi_or_dois,
+                         pmid_only=True):
         """
+
+        This is the web interface, not sure if it is documented somewhere:
+        https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/
+
+
+
         The endpoint doesn't seem to be working properly:
         https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/?ids=25186301
         
@@ -177,7 +212,10 @@ class API(object):
         -------------------
         pmid_only : Bool (Default True)
             False is not yet implemented
-            
+
+        Examples
+        --------
+        pmid = api.get_ids_from_doi('10.1002/nau.24124')
         
         """
         
@@ -247,7 +285,7 @@ class API(object):
         
         return self._make_request('GET',url,models.get_db_list,params=params)
     
-    def db_stats(self,db_name):
+    def db_info(self,db_name):
         """
         
         This looks like it might return information on how to query the 
@@ -541,6 +579,10 @@ List of UIDs in plain text	uilist	text
         
         return self._make_request('POST',url,models.citation_match_parser,data=payload,data_for_response=data_for_response)
 
+    def __repr__(self):
+        pv = ['db_info','Return info on a specific database',
+              'db_list','Return a list of available databases']
+        return utils.property_values_to_string(pv)
 
                 
 class Links(object):

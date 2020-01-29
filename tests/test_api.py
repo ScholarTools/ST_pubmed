@@ -9,7 +9,7 @@ Status:
 #sys.path.insert(0, os.path.abspath('..'))
 
 from pubmed import API, CitationMatcherEntry
-api = API(debug=True)
+api = API(verbose=True)
 
 #---- ID Matching
 #======================================
@@ -49,7 +49,7 @@ assert db_list[0] == 'pubmed', "Unexpected list result"
 #Currently 50 databases! April 2018
 #- ncbisearch
 #- nlmcatalog
-#- pmc
+c#- pmc
 #- mesh
 
 #Currently the raw JSON data are returned
