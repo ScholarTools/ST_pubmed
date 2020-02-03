@@ -27,7 +27,7 @@ from . import config
 from . import utils
 
 from .utils import get_truncated_display_string as td
-from .utils import get_list_class_display as cldc
+from .utils import get_list_class_display as cld
 
 
 class CitationMatcherEntry(object):
@@ -129,13 +129,18 @@ class API(object):
     
     _BASE_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'    
     
-    def __init__(self,verbose=False):
+    def __init__(self,verbose=False,email=None,tool=None):
 
+
+        self.email = email
+        self.tool = tool
+        if self.email is None:
+            if config.email is not None:
+                self.email = config.email
+                self.tool = config.tool
 
         self.verbose = verbose
-        
-        #tool and email        
-        
+
         self.session = requests.session()
         self.links = Links(self)
 
@@ -158,16 +163,19 @@ class API(object):
             
         if data is None:
             data = {}
-            
-        if config.email is not None:
+
+        if self.email is not None:
             if method.upper() == 'POST':
-                data['email'] = config.email
-                data['tool'] = config.tool
+                data['email'] = self.email
+                data['tool'] = self.tool
             else:
-                params['email'] = config.email
-                params['tool'] = config.tool
-        
-        resp = self.session.request(method,url,params=params,data=data)  
+                params['email'] = self.email
+                params['tool'] = self.tool
+
+        response = self.session.request(method,url,params=params,data=data)
+
+        self.last_response = response
+
         
         #resp = self.session.request(method,url,data=data)        
 
@@ -179,45 +187,60 @@ class API(object):
         #TODO: Look for 200
 
         as_json_final = (params.get('retmode',None) is 'json' or 
-                         as_json or data.get('retmode',None))
+                         as_json or data.get('retmode',None) is 'json')
         
         if as_json_final:
             if data_for_response is None:
-                return handler(resp.json())
+                return handler(self,response.json())
             else:
-                return handler(resp.json(),data_for_response)
+                return handler(self,response.json(),data_for_response)
         else:
             if data_for_response is None:
-                return handler(resp.text)
+                return handler(self,response.text)
             else:
-                return handler(resp.text,data_for_response)
+                return handler(self,response.text,data_for_response)
             
     #---- IDs API --------------------
-    def get_ids_from_doi(self,
+    def get_ids_from_dois(self,
                          doi_or_dois,
                          pmid_only=True):
         """
 
-        This is the web interface, not sure if it is documented somewhere:
-        https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/
-
-
-
-        The endpoint doesn't seem to be working properly:
-        https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/?ids=25186301
-        
-            So instead I'm using a workaround with seach()
-        
         Optional Parameters
         -------------------
         pmid_only : Bool (Default True)
-            False is not yet implemented
+            False is not yet implemented. I think the idea would be to
+            provide other IDs, PMCID? others? ISSN?
 
         Examples
         --------
-        pmid = api.get_ids_from_doi('10.1002/nau.24124')
+        #1) Working DOI
+        pmid = api.get_ids_from_dois('10.1002/nau.24124')
+        '31361061'
+
+        #2) Made up DOI
+        pmid = api.get_ids_from_dois('10.1002/nau.123456789')
+        None
+
+        #3) Working and made up DOIs
+        pmids = api.get_ids_from_dois(['10.1002/nau.23483','10.1002/nau.234832222'])
+        ['29336494', None]
+
         
         """
+
+        #Implementation note, there is a utility called the ID Converter
+        #
+        #   https://www.ncbi.nlm.nih.gov/pmc/pmctopmid/#converter
+        #
+        #   But when I tried an example DOI it didn't work. So instead we
+        #   use a generic search and specify that we are using DOIs, and this
+        #   seems to work. Unfortunately this requires two calls if we search
+        #   for multiple DOIs, one for getting the PMIDs and a second call
+        #   to match each DOI with its particular PMID
+
+        #URL =  "https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/"
+
         
         
         if type(doi_or_dois) is list:
@@ -225,7 +248,6 @@ class API(object):
             temp = [x + '[DOI]' for x in doi_or_dois]
             query = " OR ".join(temp)
             #10.1242/jeb.154609[DOI] OR 10.1038/s41467-018-03561-w[DOI]
-            
         else:
             query = doi_or_dois + '[DOI]'
             is_list = False
@@ -236,6 +258,12 @@ class API(object):
         if pmid_only:
             if is_list:
                 #We have the relevant PMIDs, but no mapping
+                #
+                #   The search above is basically:
+                #   "give us PMIDs from any of these DOIs"
+                #
+                #   Now we get info on the returned IDs and dig into
+                #   their info to get the corresponding DOIs
                 ids = temp.ids
                 if len(ids) == 0:
                     output = [None for x in doi_or_dois]
@@ -243,7 +271,7 @@ class API(object):
                 
                 #This gives us info which maps
                 #each PMID back to the DOI
-                s = self.summary(ids)
+                s = self.doc_summaries(ids)
                 
                 d = {}
                 for temp,temp_id in zip(s.docs,s.ids):
@@ -257,7 +285,6 @@ class API(object):
                 return output
                 
             else:
-                #TODO: Support null match case
                 value = temp.ids
                 if len(value) == 0:
                     return None
@@ -265,11 +292,11 @@ class API(object):
                     return value[0]
         else:
             raise Exception("Returning other IDs is not yet implemented")
-        
+
         #JAH: Note that using search will only return PMIDs, rather than other
         #identifiers through the broken API
         #We can then followup with getting info but this requires extrac work
-    
+
     #---- EInfo ----------------------
     def db_list(self):
         """
@@ -333,8 +360,15 @@ class API(object):
         return self._make_request('GET',url,models.pass_through,params=params)
     
     #---- ESeach ----------
-    def search(self,query,**kwargs):
+    def search(self,
+               query,
+               db='Pubmed',
+               use_history=None,
+               web_env=None,
+               query_key=None):
         """
+
+        TODO:
         
         Function documentation at:
         http://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ESearch
@@ -379,10 +413,25 @@ class API(object):
         -------
         models.SearchResult
 
+        Examples
+        --------
+        result = api.search("Langdale Grill")
+
         """
-        
-        url = 'http://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi'
-        params = {'db':'pubmed','term':query,'retmode':'json'}
+        url = self._BASE_URL + 'esearch.fcgi'
+
+        params = {'db':db,
+                  'term':query,
+                  'retmode':'json'}
+
+        if web_env and web_env is not None:
+            params['WebEnv'] = web_env
+        if use_history and use_history is not None:
+            params['usehistory'] = usehistory
+        if query_key and query_key is not None:
+            params['query_key'] = query_key
+
+
         #params.update(kwargs)
         
         #JAH: I tried to get the POST call to work but I couldn't
@@ -393,40 +442,56 @@ class API(object):
         
         #TODO: "For very long queries (more than several hundred characters long), 
         #consider using an HTTP POST call."
-        #TODO: Switch to using make_request
-        #response = requests.get(url,params=params)
-        
-        temp = self._make_request('GET',url,models.pass_through,params=params)
 
-        #import pdb
-        #pdb.set_trace()
-        
-        #TODO: Check for an error        
-        
-        #temp = lxml.etree.fromstring(response.content)
-        return models.SearchResult(temp)
+        return self._make_request('GET',url,models.SearchResult,params=params)
     
     #---- EPost -------
     
     #https://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.EPost
     #Not yet implemented
-    
+
+    """
     def post_data(self):
         pass
+    """
     
     #---- ESummary ----------
-    def summary(self,id_or_ids,db='pubmed'):
+    def doc_summaries(self,id_or_ids):
         """
         https://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ESummary
+
+        Returns less information than the full doc_info() method but it still
+        returns quite a bit of information ...
+
+        - article ids
+        - authors
+        - title
+        - issn
+        - pages
+        ... and many others
         
-        #TODO: Not yet documented ...
-        This currently just passes the JSON through
+        Examples
+        --------
+        summary = api.doc_summaries(27738096)
+
+        #TODO: test non-sense result ...
+
+        #Test other input forms
+
         """
+
+        if type(id_or_ids) is list:
+            if isinstance(id_or_ids[0],int):
+                id_or_ids = [str(x) for x in id_or_ids]
+            id_string = ','.join(id_or_ids)
+        elif isinstance(id_or_ids,int):
+            id_string = str(id_or_ids)
+        else:
+            id_string = id_or_ids
         
-        
-        id_string = ','.join(id_or_ids)
-        
-        payload = {'retmode':'json','db':db,'id':id_string}
+        payload = {'retmode':'json',
+                   'db':'pubmed',
+                   'id':id_string}
 
         url = self._BASE_URL + 'esummary.fcgi'        
         
@@ -434,7 +499,10 @@ class API(object):
     
     
     #---- EFetch ------
-    def fetch(self,id_list,db='pubmed',return_type=None,**kwargs):
+    def doc_info(self,
+                 id_or_ids,
+                 return_type=None,
+                 as_object=True):
         """
         Function documentation at:
         http://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.EFetch
@@ -445,22 +513,72 @@ class API(object):
         
         Perhaps we want to break out into a Fetch class like Links????
         
-        Return Types
-        ------------
-        The list of valid return types varies depending upon the database.
-        A full list can be seen at:
-            https://www.ncbi.nlm.nih.gov/books/NBK25499/table/chapter4.T._valid_values_of__retmode_and/?report=objectonly
-        
+        Optional Inputs
+        ---------------
+        return_type :
+            - 'abstract'
+                Abstract contains the title and authors and the abstract.
+                TODO: We could parse out only the abstract ...
+            - 'pmid_list' - not sure what this is since we are querying by
+                    pmids ...
+
+
+        Examples
+        --------
+        result = api.doc_info('30343668')
+        #TODO: These don't work if as_object = true
+        #TODO: make return_type = 'object' support
+        result = api.doc_info('30343668',return_type='pmid_list')
+        result = api.doc_info('30343668',return_type='abstract')
+        result = api.doc_info('30343668',return_type='medline')
+        result = api.doc_info('30343668',return_type='text')
+        result = api.doc_info('30343668',return_type='xml')
+
+        #medline
+        #----------------------------
+        #PMID- 30343668
+        #OWN - NLM
+        #STAT- MEDLINE
+        #DCOM- 20190320
+        #LR  - 20191101
+        #IS  - 2042-6410 (Electronic)
+        #IS  - 2042-6410 (Linking)
+
+        #text
+        #-----------------------
+        #Pubmed-entry ::= {
+        #  pmid 30343668,
+        #  medent {
+        #    em std {
+        #      year 2018,
+        #      month 10,
+        #      day 23,
+        #      hour 6,
+        #      minute 0
+        #    },
+
+        #xml
+        #------------------------
+
+
+
         """
+
+
+        #The list of valid return types varies depending upon the database.
+        #A full list can be seen at:
+        #    https://www.ncbi.nlm.nih.gov/books/NBK25499/table/chapter4.T._valid_values_of__retmode_and/?report=objectonly
+
         
         #TODO: Support PMC
         
         #????
         #JAH: What are the diffences in these formats????
+
         """
         Document summary	docsum	xml, default
-List of UIDs in XML	uilist	xml
-List of UIDs in plain text	uilist	text
+        List of UIDs in XML	uilist	xml
+        List of UIDs in plain text	uilist	text
         null - empty string
         
                     rettype         retmode
@@ -472,18 +590,23 @@ List of UIDs in plain text	uilist	text
         medline     medline         text
         pmid_list   uilist          text
         abstract    abstract        text
-        
-        
-        
         """
+
+        if type(id_or_ids) is list:
+            id_string = ','.join(id_or_ids)
+        else:
+            id_string = id_or_ids
         
-        id_string = ','.join(id_list)
-        
-        payload = {'db':db,'id':id_string}
-        
-        if return_type is None:
+        payload = {'db':'pubmed',
+                   'id':id_string}
+
+        if as_object:
+            payload['rettype'] = ''
+            payload['retmode'] = 'xml'
+        elif return_type is None:
             pass
         elif return_type is 'text':
+            #default ...
             payload['rettype'] = ''
             payload['retmode'] = 'asn.1'
         elif return_type is 'xml':
@@ -502,7 +625,12 @@ List of UIDs in plain text	uilist	text
         url = self._BASE_URL + 'efetch.cgi'  
 
         #return self._make_request('POST',url,models.DocumentSet,data=payload)
-        return self._make_request('POST',url,models.pass_through,data=payload)
+        if as_object:
+            fh = models.PubmedArticleSet
+        else:
+            fh = models.pass_through
+        return self._make_request('POST',url,fh,
+                                  data=payload,as_json=False)
     
     #---- ELink
     #This section is complicated so instead we have .links which points
@@ -577,17 +705,28 @@ List of UIDs in plain text	uilist	text
         
         url = self._BASE_URL + 'ecitmatch.cgi'        
         
-        return self._make_request('POST',url,models.citation_match_parser,data=payload,data_for_response=data_for_response)
+        return self._make_request('POST',url,models.citation_match_parser,
+                                  data=payload,
+                                  data_for_response=data_for_response)
 
     def __repr__(self):
-        pv = ['db_info','Return info on a specific database',
-              'db_list','Return a list of available databases']
+        pv = ['email',self.email,
+              'tool',self.tool,
+              'links',cld(self.links),
+              'db_info','Return info on a specific database',
+              'db_list','Return a list of available databases'
+              'doc_summaries','Returns summary info on specified Pubmed IDs']
         return utils.property_values_to_string(pv)
 
                 
 class Links(object):
     
     """
+    https://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ELink
+
+    Note, ELink has a TON of endpoints but I don't use them so this really
+    isn't flushed out ...
+
     Attributes
     ----------
     parent : API
@@ -598,16 +737,53 @@ class Links(object):
         
         """
         self.parent = parent
-        
+
+
+    #TODO: This needs to be rewritten to specifically give
+    #a single PMC value for a PMCID
     def pmid_to_pmc(self,pmids):
-        id_param = ','.join(pmids)
-        params = {'dbfrom':'pubmed','db':'pmc','id':id_param}
-        return self._make_link_request(params,models.PMIDToPMCLinkSet)
+        """
+        What happens when
+
+        :param pmids:
+        :return:
+
+        Examples
+        --------
+        result = api.links.pmid_to_pmc([28929910,29141938])
+
+        """
+
+        data_for_response = {'pmids':pmids}
+
+        if isinstance(pmids, list):
+            if isinstance(pmids[0], int):
+                str_list = [str(x) for x in pmids]
+            else:
+                str_list = pmids
+
+            id_param = ','.join(str_list)
+        else:
+            if isinstance(pmids, int):
+                id_param = str(pmids)
+            else:
+                id_param = pmids
+
+        params = {'dbfrom':'pubmed',
+                  'db':'pmc',
+                  'id':id_param,
+                  'retmode':'json'}
+        return self._make_link_request(params,models.PMIDToPMCLinkSets,data_for_response=data_for_response)
     
     def pmc_to_pmid(self,pmc_ids):
         pass
     
-    def _make_link_request(self,params,handler):
+    def _make_link_request(self,params,handler,data_for_response=None):
         
         url = self.parent._BASE_URL + 'elink.fcgi'
-        return self.parent._make_request('POST',url,handler,data=params)
+        return self.parent._make_request('POST',url,handler,data=params,data_for_response=data_for_response)
+
+    def __repr__(self):
+        pv = ['pmid_to_pmc','Given a PMID, get a PMCID',
+              'db_list','Return a list of available databases']
+        return utils.property_values_to_string(pv)
