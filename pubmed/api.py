@@ -1,31 +1,56 @@
 # -*- coding: utf-8 -*-
 """
-http://www.ncbi.nlm.nih.gov/books/NBK25499/
 
-API Release Notes
-http://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.Release_Notes
+Books
+----------------------
+Entrez Help
+https://www.ncbi.nlm.nih.gov/books/NBK3837/
 
-Additional API Features
--------------------------
-IDs : https://www.ncbi.nlm.nih.gov/pmc/tools/id-converter-api/
-    JAH: This endpoint doesn't work properly
-    
-Current Status:
-    - Needs documentation, especially of optional features
-    - working to 
+Entrez Programming Help
+https://www.ncbi.nlm.nih.gov/books/NBK25501
+
+DTD Elements List
+https://www.nlm.nih.gov/bsd/licensee/elements_alphabetical.html
+
+DTD Documentation
+https://dtd.nlm.nih.gov/ncbi/pubmed/
+
+
+
+JAH Status:
+1) Document status of each test
+2) Support rate limiting
+3) Add examples for query matcher
+4) Add real-time search suggestions
+5) mesh support
+
+- fix parsing of citation matcher
+-
+
+------------------------------------------------------
+                Entrez Endpoint Notes
+------------------------------------------------------
+
+EInfo ----------------
+
+
 
 """
 
 #Standard Library
+from typing import Union, List, Optional
+import re
+
 
 #Third Party
 import requests
 
 #Local
 from . import models
+from . import einfo_models
+CitationMatchResult = models.CitationMatchResult
 from . import config
 from . import utils
-
 from .utils import get_truncated_display_string as td
 from .utils import get_list_class_display as cld
 
@@ -33,12 +58,13 @@ from .utils import get_list_class_display as cld
 class CitationMatcherEntry(object):
     
     def __init__(self,
-                 jtitle=None,
-                 year=None,
+                 jtitle:Optional[str]=None,
+                 year:Union[int,str,None]=None,
                  volume=None,
                  page1=None,
                  name=None,
-                 key=None):
+                 key=None,
+                 autofix_name=True):
         """
         Constructs an entry for citation matching        
         
@@ -59,16 +85,16 @@ class CitationMatcherEntry(object):
         page1 : string
             The first page of the publication
         name : string
-            Author name. Currently this is not limited to a specific author
-            although the ability to limit this to a specific author may be
-            possible eventually
+            Author name.
+            TODO: Can we split this field in some way????
         key : string
             Use for identifying this entry later on.
+            TODO: It would be good to provide an example of this ...
             
         Questions
         ---------
         1) Can we provide multiple authors?
-        2) Can we specify an author role
+        2) Can we specify an author role?
     
         Examples
         --------
@@ -81,6 +107,18 @@ class CitationMatcherEntry(object):
         self.page1 = page1
         self.name = name
         self.key = key
+
+        if autofix_name:
+            #AB CDEF
+            #12345
+            if len(name) > 5 and name[2] == ' ' and name[0:2].isupper():
+                self.name = name[3:] + ' ' + name[0:2]
+                #If name is like "AB Cdef" then we apparently
+                #should change to Cdef AB
+                #If However we have Ab Cdef, like Li John, then I don't think
+                #we should switch - i.e. we need to be careful with initials
+                #versus short last names
+
         
         #TODO: We could distinguish between those that are not found due
         #to a high liklihood vs those not found due to bad meta
@@ -108,7 +146,8 @@ class CitationMatcherEntry(object):
         values = ["%s" % x if x is not None else '' for x in values]
              
         #Documentation says they should end with a | but it doesn't seem to matter
-        return '|'.join(values)
+        temp =  '|'.join(values)
+        return temp + '|'
 
 
     def __repr__(self):
@@ -144,6 +183,10 @@ class API(object):
         self.session = requests.session()
         self.links = Links(self)
 
+        self.last_params = None
+        self.last_response = None
+        self.last_prepped_params = None
+
     def _make_request(self,
                       method,
                       url,
@@ -172,9 +215,22 @@ class API(object):
                 params['email'] = self.email
                 params['tool'] = self.tool
 
+        if method == 'POST':
+            self.last_params = data
+        else:
+            self.last_params = params
+
         response = self.session.request(method,url,params=params,data=data)
 
         self.last_response = response
+        if method == 'POST':
+            self.last_prepped_params = response.request.body
+        else:
+            #This isn't perfect ...
+            #TODO:
+            partial_url = response.request.path_url
+            r = re.search('\?', partial_url)
+            self.last_prepped_params = partial_url[r.start()+1:]
 
         
         #resp = self.session.request(method,url,data=data)        
@@ -297,22 +353,37 @@ class API(object):
         #identifiers through the broken API
         #We can then followup with getting info but this requires extrac work
 
-    #---- EInfo ----------------------
+    #----------------------------------------------------------------------
+    #-------------------------       EInfo      ---------------------------
+    # ---------------------------------------------------------------------
+
     def db_list(self):
         """
         Return a list of available databases.
+
+        List of databases with descriptions at:
+        https://www.ncbi.nlm.nih.gov/books/NBK3837/
         
         Our support for these other databases in this codebase is minimal.
         https://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.EInfo
         """
-        
-        params = {'retmode':'json'}
-        
-        url = self._BASE_URL + 'einfo.fcgi'        
-        
-        return self._make_request('GET',url,models.get_db_list,params=params)
-    
-    def db_info(self,db_name):
+
+        return self._db_info()
+
+    def pmc_info(self):
+        """
+
+        STATUS: This needs to be flushed out more
+        :return:
+
+        Examples
+        --------
+        info = api.pmc_info()
+        """
+
+        return self._db_info('pmc')
+
+    def _db_info(self,db_name=None):
         """
         
         This looks like it might return information on how to query the 
@@ -351,25 +422,35 @@ class API(object):
              'singletoken': 'Y',
              'termcount': '0'},
             {'descr
+
+        Examples
+        --------
+        #
+        all_dbs = api._db_info()
+
         
         """
-        params = {'retmode':'json','db':db_name}
-        
-        url = self._BASE_URL + 'einfo.fcgi'        
-        
-        return self._make_request('GET',url,models.pass_through,params=params)
+        url = self._BASE_URL + 'einfo.fcgi'
+
+        if db_name is None:
+            params = {'retmode': 'json'}
+            response = self._make_request('GET',url,models.pass_through,params=params)
+            return sorted(response['einforesult']['dblist'])
+        else:
+            params = {'retmode':'xml','db':db_name}
+
+        return self._make_request('GET',url,einfo_models.parse_db_info,params=params)
     
     #---- ESeach ----------
     def search(self,
                query,
-               db='Pubmed',
+               db='pubmed',
                use_history=None,
                web_env=None,
                query_key=None):
         """
+        JAH Status: Needs to handle optional parameters
 
-        TODO:
-        
         Function documentation at:
         http://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ESearch
 
@@ -456,7 +537,8 @@ class API(object):
     """
     
     #---- ESummary ----------
-    def doc_summaries(self,id_or_ids):
+    def doc_summary(self,id_or_ids:Union[List[int],List[str],int,str])\
+        ->models.SummaryResult:
         """
         https://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ESummary
 
@@ -642,7 +724,8 @@ class API(object):
     
     #---- ECitMatch
     
-    def match_citations(self,citation_entries):
+    def match_citations(self,citation_entries:CitationMatcherEntry)\
+            ->Union[CitationMatchResult,List[CitationMatchResult]]:
         """
         Retrieves PubMed IDs (PMIDs) that correspond to a set of input 
         citation strings.
@@ -652,19 +735,43 @@ class API(object):
         
         Others:
         -------
-        http://www.ncbi.nlm.nih.gov/pubmed/citmatch - supports only as first or last author matching
+        http://www.ncbi.nlm.nih.gov/pubmed/citmatch - this endpoint
+        supports selecting that the specified author should be a first author
+        or last author only - but this returns a web page, not
+        machine readable info
         
         Parameters
         ----------
         citation_entries : [CitationMatcherEntry] or CitationMatcherEntry        
             An instance or list of instances of CitationMatcherEntry
             
-        Example
-        -------
-        from pubmed import Pubmed, CitationMatcherEntry
-        api = Pubmed()        
+        Examples
+        --------
+        #Valid entry  --------
+        from pubmed import API, CitationMatcherEntry
+        api = API()
         citation = CitationMatcherEntry(jtitle='Bioinformatics',year=2015,volume=31,page1=3897)
-        matches = api.match_citations(citation)
+        match = api.match_citations(citation)
+
+        #Ambiguous entry --------
+        citation = CitationMatcherEntry(jtitle='Bioinformatics',year=2015,volume=31)
+        match = api.match_citations(citation)
+
+        #Invalid Journal --------
+        citation = CitationMatcherEntry(jtitle='Bioinfo',year=2015,volume=31)
+        match = api.match_citations(citation)
+
+        #Missing Journal - Ambiguous --------
+        citation = CitationMatcherEntry(year=2015,volume=31,page1=3897)
+        match = api.match_citations(citation)
+
+        #Interesting, this fails hard with the search
+        #raw response is empty ...
+        citation = CitationMatcherEntry(name='RA Gaunt',year=2017)
+        match = api.match_citations(citation)
+
+
+
         
         Returns
         -------
@@ -713,9 +820,13 @@ class API(object):
         pv = ['email',self.email,
               'tool',self.tool,
               'links',cld(self.links),
+              'last_params',td(self.last_params),
+              'last_response',self.last_response,
+              'last_prepped_params',td(self.last_prepped_params),
               'db_info','Return info on a specific database',
-              'db_list','Return a list of available databases'
-              'doc_summaries','Returns summary info on specified Pubmed IDs']
+              'db_list','Return a list of available databases',
+              'doc_summary','Returns summary info on specified Pubmed IDs',
+              'doc_info',"Get's detailed info on specific IDs"]
         return utils.property_values_to_string(pv)
 
                 

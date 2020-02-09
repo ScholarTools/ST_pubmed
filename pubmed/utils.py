@@ -2,10 +2,18 @@
 """
 """
 
+class _Quotes(str):
+    pass
+
+def quotes(input_string):
+    if input_string is None:
+        return None
+    else:
+        return _Quotes(input_string)
+
 def display_class(class_instance,pv):
     
-    #Do we want to to specify the full path to the class ...?
-    return '%s:\n' % type(class_instance) + property_values_to_string(pv,extra_indentation=4)
+    return '%s:\n\n' % type(class_instance) + property_values_to_string(pv,extra_indentation=4)
 
 def property_values_to_string(pv,extra_indentation = 0):
     """
@@ -19,6 +27,7 @@ def property_values_to_string(pv,extra_indentation = 0):
 
     keys = pv[::2]
     values = pv[1::2]
+    values = ['"%s"' %x if isinstance(x,_Quotes) else x for x in values]
 
     key_lengths = [len(x) for x in keys]
     max_key_length = max(key_lengths) + extra_indentation
@@ -54,7 +63,13 @@ def get_list_class_display(value):
         return u'<%s>' % (value.__class__.__name__)
 
 
-def get_truncated_display_string(input_string, max_length=50):
+def get_truncated_display_string(input_string:str, max_length:int=30):
+    """
+
+    :param input_string:
+    :param max_length:
+    :return:
+    """
     if input_string is None:
         return 'None'
     elif len(input_string) > max_length:
