@@ -2,6 +2,7 @@
 #Rename to user_config.py and update
 
 email = ''
+api_key = ''
 
 #This is optional:
 #tool = 'Scholar Tools'

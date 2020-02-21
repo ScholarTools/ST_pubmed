@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 """
 
+from pubmed import API, CitationMatcherEntry
+api = API()
+
+#TODO: CHeck this out:
+https://www.ncbi.nlm.nih.gov/pmc/tools/developers/
+
 Books
 ----------------------
 Entrez Help
@@ -15,23 +21,40 @@ https://www.nlm.nih.gov/bsd/licensee/elements_alphabetical.html
 DTD Documentation
 https://dtd.nlm.nih.gov/ncbi/pubmed/
 
+Medline Elements
+https://www.nlm.nih.gov/bsd/mms/medlineelements.html
 
 
 JAH Status:
-1) Document status of each test
-2) Support rate limiting
-3) Add examples for query matcher
-4) Add real-time search suggestions
-5) mesh support
+- add support for paging ...
 
-- fix parsing of citation matcher
--
+1) Document status of each test
+3) Add examples for query matcher
+4) Add real-time search suggestions - espell?
+5) mesh support
+- add nlm support ...
 
 ------------------------------------------------------
                 Entrez Endpoint Notes
 ------------------------------------------------------
 
-EInfo ----------------
+EInfo
+-------------------------------------------------------
+Returns information on how to search each database.
+
+Status: Needs documentation updates
+
+
+
+ESearch
+-------------------------------------------------------
+Returns a list of IDs matching a query ...
+
+Status: search() method needs to be updated ...
+
+
+ESummary
+
 
 
 
@@ -40,6 +63,7 @@ EInfo ----------------
 #Standard Library
 from typing import Union, List, Optional
 import re
+import time
 
 
 #Third Party
@@ -48,71 +72,83 @@ import requests
 #Local
 from . import models
 from . import einfo_models
+from . import esearch_models
+from . import elink_models
+from .einfo_models import DbInfo
 CitationMatchResult = models.CitationMatchResult
 from . import config
 from . import utils
 from .utils import get_truncated_display_string as td
 from .utils import get_list_class_display as cld
-
+from .utils import quotes, display_class
 
 class CitationMatcherEntry(object):
+
+    """
+    Online Documentation:
+    http://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ECitMatch
+
+    Online implementations:
+    -----------------------
+    http://www.ncbi.nlm.nih.gov/pubmed/batchcitmatchs
+
+    Attributes
+    ----------
+    jtitle : str
+        TODO: How sensitive is this to style? J Urol vs the Journal of Urology?
+    year : str
+    volume : str
+    page1 : str
+        The first page of the publication
+    name : str
+        Author name.
+        TODO: Can we split this field in some way????
+    key : string
+        Use for identifying this entry later on.
+        TODO: It would be good to provide an example of this ...
+    """
     
     def __init__(self,
-                 jtitle:Optional[str]=None,
+                 journal:Optional[str]=None,
                  year:Union[int,str,None]=None,
                  volume=None,
                  page1=None,
-                 name=None,
+                 author=None,
                  key=None,
-                 autofix_name=True):
+                 autofix_author=True):
         """
         Constructs an entry for citation matching        
-        
-        Online Documentation:
-        http://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ECitMatch     
-        
-        Online implementations:
-        -----------------------
-        http://www.ncbi.nlm.nih.gov/pubmed/batchcitmatch
-        
-        
+
         Parameters
         ----------
-        jtitle : string
-            TODO: How sensitive is this to style? J Urol vs the Journal of Urology?
-        year : string
-        volume : string
-        page1 : string
-            The first page of the publication
-        name : string
-            Author name.
-            TODO: Can we split this field in some way????
-        key : string
-            Use for identifying this entry later on.
-            TODO: It would be good to provide an example of this ...
+        autofix_author : bool
+            Tries to reverse incorrect names
             
         Questions
         ---------
-        1) Can we provide multiple authors?
-        2) Can we specify an author role?
+        1) Can we provide multiple authors? NO
+        2) Can we specify an author role? NO
     
         Examples
         --------
-            
-            
+        from pubmed import API, CitationMatcherEntry
+        api = API()
+        c1 = CitationMatcherEntry(year=2012,author='Aizawa N',volume=62)
+        result = api.match_citations(c1)
+
         """
-        self.jtitle = jtitle
+        self.journal = journal
         self.year = year
         self.volume = volume
         self.page1 = page1
-        self.name = name
+        self.author = author
         self.key = key
 
-        if autofix_name:
+        if autofix_author:
             #AB CDEF
             #12345
-            if len(name) > 5 and name[2] == ' ' and name[0:2].isupper():
-                self.name = name[3:] + ' ' + name[0:2]
+            if len(author) > 5 and author[2] == ' ' and author[0:2].isupper():
+                self.author = author[3:] + ' ' + author[0:2]
                 #If name is like "AB Cdef" then we apparently
                 #should change to Cdef AB
                 #If However we have Ab Cdef, like Li John, then I don't think
@@ -135,7 +171,7 @@ class CitationMatcherEntry(object):
     
     def get_serialized(self,alt_key=None):
         
-        key_order = ('jtitle', 'year', 'volume', 'page1', 'name', 'key')
+        key_order = ('journal', 'year', 'volume', 'page1', 'author', 'key')
         
         values = [getattr(self,key) for key in key_order]
         
@@ -151,393 +187,621 @@ class CitationMatcherEntry(object):
 
 
     def __repr__(self):
-        pv = ['jtitle',self.journal_title,
-              'key',self.key,
-              'name',self.name,
-              'page1',self.page1,
-              'volume',self.volume,
-              'year',self.year]
-        return utils.property_values_to_string(pv)
-        str = u'' + \
-            'year: %s' % self.year
-            
-        return str
+        return display_class(self,
+                             [  'journal',quotes(self.journal),
+                                'year', quotes(self.year),
+                                'volume',quotes(self.volume),
+                                'page1',quotes(self.page1),
+                                'author', quotes(self.author),
+                                'key',quotes(self.key)])
+
+class MESH(object):
+
+    def __init__(self,parent):
+        self.parent = parent
+
+    def info(self):
+        return self.parent._db_info('mesh')
+
+    def search(self,query):
+        if return_type == 'ids':
+            fh = esearch_models.get_search_ids
+            mode = 'json'
+        elif return_type == 'object':
+            fh = esearch_models.JSONSearchResult
+            mode = 'json'
+        elif return_type == 'object-xml':
+            fh = esearch_models.XMLSearchResult
+            mode = 'xml'
+        elif return_type == 'text-json':
+            fh = models.pass_through
+            mode = 'json'
+        elif return_type == 'text-xml':
+            fh = models.pass_through
+            mode = 'xml'
+        elif return_type == 'xml':
+            fh = models.get_xml
+        elif return_type == 'json':
+            fh = models.get_json
+        else:
+            raise ValueError('Unrecognized return type')
+
+
+        return self.parent._esearch('pubmed',query,fh,start=start,max=max,mode=mode)
+
+class PMC(object):
+
+    def __init__(self,parent):
+        self.parent = parent
+
+    def info(self):
+        return self.parent._db_info('pmc')
+
+    def get_pmid(self,id_or_ids):
+        """
+
+        Examples
+        --------
+        >>> result = api.pmc.get_pmid(['PMC3475720', 'PMC3043805', 'PMC5751745'])
+        ['22255275', '21068196', '28322213']
+
+        #Shuffle order
+        result = api.pmc.get_pmid(['PMC3043805', 'PMC5751745', 'PMC3475720'])
+        ['21068196', '28322213', '22255275']
+
+        #Added bad match
+        result = api.pmc.get_pmid(['PMC3043805', 'PMC5751745', 'PMC347572012345'])
+        ['21068196', '28322213', None]
+
+        See Also
+        --------
+        Pubmed.get_pmcid
+        """
+        fh = elink_models.pmc_to_pmid_results
+        return self.parent._id_convertor(id_or_ids, fh, id_type='pmcid')
+
+    def search(self):
+        pass
+
+class Pubmed(object):
+
+    parent : 'API'
+
+    def __init__(self, parent:'API'):
+        """
+        Accessible as: api.pubmed
+
+        """
+        self.parent = parent
+
+    def info(self):
+        """
+
+        Example
+        -------
+        r = api.pubmed.info()
+        df = r.fields_as_table()
+        df.to_clipboard()
+        """
+        return self.parent._db_info('pubmed')
+
+    def get_pmcid(self, id_or_ids):
+        """
+
+        Parameters
+        ----------
+        id_or_ids
+
+        Examples
+        --------
+        #1 with PMC, 1 without
+        result = api.pubmed.get_pmcid([1,31500373])
+
+        #Multiple with PMCIDs
+        >>> result = api.pubmed.get_pmcid([22255275,21068196,28322213])
+        ['PMC3475720', 'PMC3043805', 'PMC5751745']
+
+        See Also
+        --------
+        PMC.get_pmid
+
+        """
+        fh = elink_models.pmid_to_pmc_results
+        return self.parent._id_convertor(id_or_ids,fh)
+
+    def get_link_outs(self,id_or_ids,primary_only=True):
+        """
+
+        Example
+        -------
+        result =
+        """
+
+        #https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?dbfrom=pubmed&id=19880848,19822630&cmd=prlinks
+
+        fh = models.pass_through
+
+        if primary_only:
+            cmd = 'prlinks'
+        else:
+            cmd = 'llinks'
+
+        return self.parent._elink('pubmed',fh,cmd=cmd)
+
+
+    def get_related(self,id):
+        """
+
+        """
+        return self.parent._elink('pubmed',cmd='neighbor_score')
+
+
+    def pmid_to_doi(self,id_or_ids):
+        """
+
+        doi = api.pubmed.pmid_to_doi('31361061')
+        """
+
+        #Not working, emailed NLM
+        pass
+
+
+    def doi_to_pmid(self, doi_or_dois):
+        """
+
+        Examples
+        --------
+        #1) Working DOI
+        pmid = api.pubmed.doi_to_pmid('10.1002/nau.24124')
+        '31361061'
+
+        #2) Made up DOI
+        pmid = api.pubmed.doi_to_pmid('10.1002/nau.123456789')
+        None
+
+        #3) Working and made up DOIs
+        pmids = api.pubmed.doi_to_pmid(['10.1002/nau.23483','10.1002/nau.234832222'])
+        ['29336494', None]
+        """
+
+        # Implementation note, there is a utility called the ID Converter
+
+        #esearch -db pubmed -query "31361061" | esummary | xtract -pattern
+        #DocumentSummary -block ArticleId -sep "\t" -tab "\n" -element
+        #IdType,Value | grep -E '^pubmed|doi'
+
+        if isinstance(doi_or_dois,list):
+            is_list = True
+            temp = [x + '[DOI]' for x in doi_or_dois]
+            query = " OR ".join(temp)
+            # 10.1242/jeb.154609[DOI] OR 10.1038/s41467-018-03561-w[DOI]
+        else:
+            query = doi_or_dois + '[DOI]'
+            is_list = False
+
+        # Find the relevant PMIDs
+        temp = self.search(query)
+
+        if is_list:
+            # We have the relevant PMIDs, but no mapping
+            #
+            #   The search above is basically:
+            #   "give us PMIDs from any of these DOIs"
+            #
+            #   Now we get info on the returned IDs and dig into
+            #   their info to get the corresponding DOIs
+            ids = temp.ids
+            if len(ids) == 0:
+                output = [None for x in doi_or_dois]
+                return output
+
+            # This gives us info which maps
+            # each PMID back to the DOI
+            s = self.doc_summary(ids)
+
+            d = {}
+            for temp, temp_id in zip(s.docs, s.ids):
+                doi_field = temp['elocationid']
+                # 'doi: 10.1002/biot.201400046'
+                if doi_field.startswith('doi: '):
+                    doi = doi_field[5:]
+                    d[doi] = temp_id
+
+            output = [d.get(x) for x in doi_or_dois]
+            return output
+
+        else:
+            value = temp.ids
+            if len(value) == 0:
+                return None
+            else:
+                return value[0]
+        # JAH: Note that using search will only return PMIDs, rather than other
+        # identifiers through the broken API
+        # We can then followup with getting info but this requires extra work
+
+    def search(self,query,start=None,max=None,return_type='object'):
+        """
+
+        Parameters
+        ----------
+        start : default 0
+        max : default 20
+            Max value is 100000
+        return_type :
+            - 'ids'
+            - 'count' - NYI
+            - 'object'
+            - 'object-xml'
+            - 'text-json'
+            - 'text-xml'
+            - 'xml'
+            - 'json'
+
+        Examples
+        --------
+        result = api.pubmed.search('Amundsen Webster',max=100)
+
+        #Invalid identifier
+        result = api.pubmed.search('Amundsen AND 2018[Year]',max=100,return_type='object-xml')
+
+        #Output type testing
+        #---------------------------------------
+        result = api.pubmed.search('Grill WM',max=400,return_type='ids')
+        result = api.pubmed.search('Grill WM',max=400,return_type='object-xml')
+        result = api.pubmed.search('Grill WM',max=400,return_type='object')
+
+        """
+        if return_type == 'ids':
+            fh = esearch_models.get_search_ids
+            mode = 'json'
+        elif return_type == 'object':
+            fh = esearch_models.JSONSearchResult
+            mode = 'json'
+        elif return_type == 'object-xml':
+            fh = esearch_models.XMLSearchResult
+            mode = 'xml'
+        elif return_type == 'text-json':
+            fh = models.pass_through
+            mode = 'json'
+        elif return_type == 'text-xml':
+            fh = models.pass_through
+            mode = 'xml'
+        elif return_type == 'xml':
+            fh = models.get_xml
+        elif return_type == 'json':
+            fh = models.get_json
+        else:
+            raise ValueError('Unrecognized return type')
+
+
+        return self.parent._esearch('pubmed',query,fh,start=start,max=max,mode=mode)
+
+    def get_info(self,id_or_ids,return_type='object'):
+        """
+
+        Parameters
+        ----------
+        id_or_ids : Union[List[str],List[int],str,int]
+            ID or list of IDs to process
+        return_type : str
+            - 'object', default
+            - 'text'
+            - 'xml'
+
+        Examples
+        --------
+        result = api.pubmed.get_info('30343668')
+
+
+        """
+
+        """
+        TODO: We could also support the other return types ...
+        text ASN.1	null	asn.1, default
+        XML	        null	xml
+        MEDLINE	    medline	text
+        PMID list	uilist	text
+        Abstract	abstract	text
+        """
+
+        if return_type == 'object':
+            fh = models.PubmedArticleSet
+        elif return_type == 'text':
+            fh = models.pass_through
+        else:
+            fh = models.get_xml
+
+        return self.parent._efetch('pubmed',id_or_ids,fh)
+
+    def get_summary(self,id_or_ids,return_type='object'):
+        """
+
+        #TODO: for consistency we should support json & xml
+        #with object from xml being default ...
+
+        Parameters
+        ----------
+        id_or_ids : Union[List[str],List[int],str,int]
+            ID or list of IDs to process
+        return_type : str
+            - 'object', default
+            - 'text-xml'
+            - 'text-json'
+            - 'xml'
+            - 'json'
+
+
+        Examples
+        --------
+        result = api.pubmed.get_summary([32022941,31788552])
+
+        result = api.pubmed.get_summary([32022941,31788552])
+        """
+
+        if return_type == 'object':
+            fh = models.SummaryResult
+        elif return_type == 'text-xml':
+            fh = models.pass_through
+            mode='xml'
+        elif return_type == 'text-json':
+            fh = models.pass_through
+            mode='json'
+        elif return_type == 'xml':
+            fh = models.get_xml
+        elif return_type == 'json':
+            fh = models.get_json
+        else:
+            raise ValueError('Invalid return_type option')
+            pass
+
+        return self.parent._esummary('pubmed',id_or_ids,fh,mode)
+
+
+
+
+    def pubmed(self):
+        """
+
+        See also the advanced Pubmed search:
+        https://www.ncbi.nlm.nih.gov/pubmed/advanced
+
+
+
+        """
+        return self._db_info('pubmed')
+
 
 
 class API(object):
+    """
+
+    Attributes
+    -----------
+    email : str
+    tool : str
+    key : str
+    rate : int
+
+    """
+
+    authentication : 'Authentication'
+    query_logger : 'QueryLogger'
     
     _BASE_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'    
     
-    def __init__(self,verbose=False,email=None,tool=None):
+    def __init__(self,verbose=False,
+                 email:Optional[str]=None,
+                 tool:Optional[str]=None,
+                 api_key:Optional[str]=None,
+                 rate:Optional[int]=None):
 
+        """
 
-        self.email = email
-        self.tool = tool
-        if self.email is None:
-            if config.email is not None:
-                self.email = config.email
-                self.tool = config.tool
+        Parameters
+        ----------
+        email :
+        api_key : str
+            TODO: Link to authentication
+        rate : int
+            This should really only be passed in when you've negotiated a rate
+            with NCBI
+        """
+
+        self.authentication = Authentication(email,tool,api_key,rate)
+        self.query_logger = QueryLogger()
 
         self.verbose = verbose
 
         self.session = requests.session()
-        self.links = Links(self)
 
-        self.last_params = None
-        self.last_response = None
-        self.last_prepped_params = None
+        #Method Links
+        #-----------------------------
+        self.pubmed = Pubmed(self)
+        self.pmc = PMC(self)
+        self.mesh = MESH(self)
+
+    def __repr__(self):
+        return display_class(self,
+              ['authentication',cld(self.authentication),
+              'query_logger',cld(self.query_logger),
+              'pubmed','Pubmed functions holder',
+              'db_list','Return a list of available databases',
+              'doc_summary','Returns summary info on specified Pubmed IDs',
+              'doc_info',"Get's detailed info on specific IDs"])
+
 
     def _make_request(self,
                       method,
                       url,
                       handler,
-                      data=None,
-                      params=None,
+                      params,
                       data_for_response=None,
-                      as_json=False):
+                      key_ok=True):
         """
-        
-        params - for URL
-        data - for body
+
+        Parameters
+        ----------
+        method : str
+            e.g., 'GET', 'POST'
+        url : str
+            URL to request
+        handler : function handle
+            The handler gets called with the request passed in
+        data : dict
+            Parameters that will go into the body or url
         
         """
         if params is None:
             params = {}
-            
-        if data is None:
-            data = {}
 
-        if self.email is not None:
-            if method.upper() == 'POST':
-                data['email'] = self.email
-                data['tool'] = self.tool
-            else:
-                params['email'] = self.email
-                params['tool'] = self.tool
+        params = self.authentication.add_auth(params,key_ok)
 
+        self.authentication.limit_rate()
+
+        #Making the request
+        #----------------------------------------------------
+        start_time = time.monotonic()
         if method == 'POST':
-            self.last_params = data
+            response = self.session.request(method,url,data=params)
         else:
-            self.last_params = params
+            response = self.session.request(method,url,params=params)
+        elapsed_time = time.monotonic() - start_time
+        #Logging ...
+        #----------------------------------------------------
+        self.query_logger.log_query(method,url,params,response,elapsed_time)
 
-        response = self.session.request(method,url,params=params,data=data)
-
-        self.last_response = response
-        if method == 'POST':
-            self.last_prepped_params = response.request.body
+        #Handle the response
+        #--------------------------------------------------------
+        start_time = time.monotonic()
+        if data_for_response is None:
+            output =  handler(self,response)
         else:
-            #This isn't perfect ...
-            #TODO:
-            partial_url = response.request.path_url
-            r = re.search('\?', partial_url)
-            self.last_prepped_params = partial_url[r.start()+1:]
+            output =  handler(self,response,data_for_response)
+        elapsed_time = time.monotonic() - start_time
+        self.query_logger.log_parse_time(elapsed_time)
 
-        
-        #resp = self.session.request(method,url,data=data)        
+        return output
 
-        #req = requests.Request(method,url,data=d2)
-        #prepared = req.prepare()
-        
-        #resp = self.session.request('POST',url + '?db=pubmed',json='10.1002/biot.201400046[DOI]') 
-        
-        #TODO: Look for 200
-
-        as_json_final = (params.get('retmode',None) is 'json' or 
-                         as_json or data.get('retmode',None) is 'json')
-        
-        if as_json_final:
-            if data_for_response is None:
-                return handler(self,response.json())
-            else:
-                return handler(self,response.json(),data_for_response)
-        else:
-            if data_for_response is None:
-                return handler(self,response.text)
-            else:
-                return handler(self,response.text,data_for_response)
-            
-    #---- IDs API --------------------
-    def get_ids_from_dois(self,
-                         doi_or_dois,
-                         pmid_only=True):
+    def _db_info(self, db_name=None) -> Union['DbInfo', List[str]]:
         """
-
-        Optional Parameters
-        -------------------
-        pmid_only : Bool (Default True)
-            False is not yet implemented. I think the idea would be to
-            provide other IDs, PMCID? others? ISSN?
-
-        Examples
-        --------
-        #1) Working DOI
-        pmid = api.get_ids_from_dois('10.1002/nau.24124')
-        '31361061'
-
-        #2) Made up DOI
-        pmid = api.get_ids_from_dois('10.1002/nau.123456789')
-        None
-
-        #3) Working and made up DOIs
-        pmids = api.get_ids_from_dois(['10.1002/nau.23483','10.1002/nau.234832222'])
-        ['29336494', None]
-
-        
-        """
-
-        #Implementation note, there is a utility called the ID Converter
-        #
-        #   https://www.ncbi.nlm.nih.gov/pmc/pmctopmid/#converter
-        #
-        #   But when I tried an example DOI it didn't work. So instead we
-        #   use a generic search and specify that we are using DOIs, and this
-        #   seems to work. Unfortunately this requires two calls if we search
-        #   for multiple DOIs, one for getting the PMIDs and a second call
-        #   to match each DOI with its particular PMID
-
-        #URL =  "https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/"
-
-        
-        
-        if type(doi_or_dois) is list:
-            is_list = True
-            temp = [x + '[DOI]' for x in doi_or_dois]
-            query = " OR ".join(temp)
-            #10.1242/jeb.154609[DOI] OR 10.1038/s41467-018-03561-w[DOI]
-        else:
-            query = doi_or_dois + '[DOI]'
-            is_list = False
-            
-        #Find the relevant PMIDs
-        temp = self.search(query)
-        
-        if pmid_only:
-            if is_list:
-                #We have the relevant PMIDs, but no mapping
-                #
-                #   The search above is basically:
-                #   "give us PMIDs from any of these DOIs"
-                #
-                #   Now we get info on the returned IDs and dig into
-                #   their info to get the corresponding DOIs
-                ids = temp.ids
-                if len(ids) == 0:
-                    output = [None for x in doi_or_dois]
-                    return output
-                
-                #This gives us info which maps
-                #each PMID back to the DOI
-                s = self.doc_summaries(ids)
-                
-                d = {}
-                for temp,temp_id in zip(s.docs,s.ids):
-                    doi_field = temp['elocationid']
-                    #'doi: 10.1002/biot.201400046'
-                    if doi_field.startswith('doi: '):
-                        doi = doi_field[5:]
-                        d[doi] = temp_id
-                
-                output = [d.get(x) for x in doi_or_dois]
-                return output
-                
-            else:
-                value = temp.ids
-                if len(value) == 0:
-                    return None
-                else:
-                    return value[0]
-        else:
-            raise Exception("Returning other IDs is not yet implemented")
-
-        #JAH: Note that using search will only return PMIDs, rather than other
-        #identifiers through the broken API
-        #We can then followup with getting info but this requires extrac work
-
-    #----------------------------------------------------------------------
-    #-------------------------       EInfo      ---------------------------
-    # ---------------------------------------------------------------------
-
-    def db_list(self):
-        """
-        Return a list of available databases.
 
         List of databases with descriptions at:
         https://www.ncbi.nlm.nih.gov/books/NBK3837/
-        
+
         Our support for these other databases in this codebase is minimal.
         https://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.EInfo
-        """
 
-        return self._db_info()
+        Returns information on how to query the specified DB.
 
-    def pmc_info(self):
-        """
-
-        STATUS: This needs to be flushed out more
-        :return:
-
-        Examples
-        --------
-        info = api.pmc_info()
-        """
-
-        return self._db_info('pmc')
-
-    def _db_info(self,db_name=None):
-        """
-        
-        This looks like it might return information on how to query the 
-        specified DB
-        
-        Info at:
-        https://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.EInfo
-        
-        This currently returns the raw JSON response without processing. This
-        ideally would be changed ...
-        
         Parameters
         ----------
         db_name : string
             Name of the DB to retrieve
-        
-        Partial Example from db_name='MESH'
-        -----------------------------------
-        'description': 'MeSH Database',
-           'fieldlist': [{'description': 'All terms from all searchable fields',
-             'fullname': 'All Fields',
-             'hierarchy': 'N',
-             'isdate': 'N',
-             'ishidden': 'N',
-             'isnumerical': 'N',
-             'name': 'ALL',
-             'singletoken': 'N',
-             'termcount': '2359734'},
-            {'description': 'Unique number assigned to publication',
-             'fullname': 'UID',
-             'hierarchy': 'N',
-             'isdate': 'N',
-             'ishidden': 'Y',
-             'isnumerical': 'Y',
-             'name': 'UID',
-             'singletoken': 'Y',
-             'termcount': '0'},
-            {'descr
 
         Examples
         --------
-        #
         all_dbs = api._db_info()
 
-        
+        Returns
+        -------
+        Union['DbInfo', List[str]]
         """
-        url = self._BASE_URL + 'einfo.fcgi'
+        url = self.parent._BASE_URL + 'einfo.fcgi'
 
         if db_name is None:
             params = {'retmode': 'json'}
-            response = self._make_request('GET',url,models.pass_through,params=params)
+            response = self.parent._make_request('GET', url, models.pass_through,
+                                          params=params)
             return sorted(response['einforesult']['dblist'])
         else:
-            params = {'retmode':'xml','db':db_name}
+            params = {'retmode': 'xml', 'db': db_name}
 
-        return self._make_request('GET',url,einfo_models.parse_db_info,params=params)
-    
-    #---- ESeach ----------
-    def search(self,
-               query,
-               db='pubmed',
-               use_history=None,
-               web_env=None,
-               query_key=None):
+        return self.parent._make_request('GET', url,
+                                         einfo_models.parse_db_info,
+                                        params=params)
+
+    #---- ELink ---------
+    def _elink(self,function_handle,id_or_ids,db=None,cmd=None,dbfrom=None,mode='json'):
         """
-        JAH Status: Needs to handle optional parameters
+        https://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ELink
 
+        Parameters
+        ----------
+        db : default 'pubmed'
+        dbfrom : default 'pubmed'
+        cmd : default 'neighbor'
+
+        """
+
+        url = self._BASE_URL + 'elink.fcgi'
+        ids = _get_id_str(id_or_ids)
+        params = {
+                  'id': ids,
+                  'db': db,
+                  'dbfrom': dbfrom,
+                  'cmd': cmd,
+                  'retmode':mode}
+
+        return self._make_request('GET',url,function_handle,params=params)
+
+    #---- ESearch ----------
+    def _esearch(self,
+                db_name,
+                query,
+                function_handle,
+                mode='xml',
+                start=None,
+                max=None):
+        """
         Function documentation at:
         http://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ESearch
 
         Provides a list of UIDs matching a text query.
 
-        Required parameters
-        query : string
+        Parameters
+        ----------
+        query : str
             Can use markup - e.g. asthma[title]
-          
-        Optional Parameters – History Server
-        ------------------------------------
-        usehistory : 
-            If 'y', resulting IDs wil saved for subsequent call
-        WebEnv : ????
-        query_key :    
-        
-        Optional Parameters – Retrieval
-        -------------------------------
-        retstart :
-           Index of the first UID to be retrieved (0 is first)
-        retmax :
+        start : Optional[int], default 0
+            Index of the first UID to be retrieved (0 is first)
+        max : Optional[int], default 20
             # of UIDs to return (max is 100000)
-        rettype : AVAIBLE BUT NOT SUPPORTED
-        sort :
-            - 'first_author' :
-            - 'pub+date' :
-        field :
-            If specified, entire search will be limited to the specified field
-        
-        Optional Parameters – Dates
-        ---------------------------
-        datetype : TODO: Verify types for pubmed
-            - 'mdat' : modification date
-            - 'pdat' : publication date
-        reldate : integer string
-            Datetype within the last n days
-        mindate, maxdate :
-            Range, allowed formats include YYYY/MM/DD, YYYY, YYYY/mm
-            
-        Returns
-        -------
-        models.SearchResult
+        mode :
+            - 'xml'
+            - 'json'
 
-        Examples
+
+
+        See Also
         --------
-        result = api.search("Langdale Grill")
+        Pubmed.search
 
         """
+
+        #TODO: Implement sort ...
+
         url = self._BASE_URL + 'esearch.fcgi'
 
-        params = {'db':db,
+        params = {'db':db_name,
                   'term':query,
-                  'retmode':'json'}
+                  'retmode':mode,
+                  'retstart':start,
+                  'retmax':max}
 
-        if web_env and web_env is not None:
-            params['WebEnv'] = web_env
-        if use_history and use_history is not None:
-            params['usehistory'] = usehistory
-        if query_key and query_key is not None:
-            params['query_key'] = query_key
-
-
-        #params.update(kwargs)
-        
-        #JAH: I tried to get the POST call to work but I couldn't
-        #I would need to email them to figure out why not ...
-        
-        
-               
-        
-        #TODO: "For very long queries (more than several hundred characters long), 
-        #consider using an HTTP POST call."
-
-        return self._make_request('GET',url,models.SearchResult,params=params)
+        return self._make_request('GET',url,function_handle,params=params)
     
     #---- EPost -------
     
     #https://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.EPost
     #Not yet implemented
 
-    """
-    def post_data(self):
-        pass
-    """
-    
     #---- ESummary ----------
-    def doc_summary(self,id_or_ids:Union[List[int],List[str],int,str])\
+    def _esummary(self,
+                    db_name,
+                    id_or_ids:Union[List[int],List[str],int,str],
+                    function_handle,
+                    mode='xml')\
         ->models.SummaryResult:
         """
         https://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ESummary
@@ -545,104 +809,43 @@ class API(object):
         Returns less information than the full doc_info() method but it still
         returns quite a bit of information ...
 
-        - article ids
-        - authors
-        - title
-        - issn
-        - pages
-        ... and many others
-        
-        Examples
+
+        See Also
         --------
-        summary = api.doc_summaries(27738096)
-
-        #TODO: test non-sense result ...
-
-        #Test other input forms
 
         """
 
-        if type(id_or_ids) is list:
-            if isinstance(id_or_ids[0],int):
-                id_or_ids = [str(x) for x in id_or_ids]
-            id_string = ','.join(id_or_ids)
-        elif isinstance(id_or_ids,int):
-            id_string = str(id_or_ids)
-        else:
-            id_string = id_or_ids
-        
-        payload = {'retmode':'json',
-                   'db':'pubmed',
-                   'id':id_string}
+        #TODO: Used to specify version 2.0 ESummary XML.
+        # The only supported value is ‘2.0’. When present,
+        # ESummary will return version 2.0 DocSum XML that is
+        # unique to each Entrez database and that often contains
+        # more data than the default DocSum XML.
 
-        url = self._BASE_URL + 'esummary.fcgi'        
+        ids = _get_id_str(id_or_ids)
         
-        return self._make_request('POST',url,models.SummaryResult,data=payload)
-    
-    
-    #---- EFetch ------
-    def doc_info(self,
+        params = {'retmode':'json',
+                   'db':db_name,
+                   'id':ids,
+                  'retmode':mode}
+
+        url = self._BASE_URL + 'esummary.fcgi'
+
+        return self._make_request('POST',url,function_handle,params)
+
+
+    def _efetch(self,
+                 db_name,
                  id_or_ids,
-                 return_type=None,
-                 as_object=True):
+                 function_handle,
+                 type='',
+                 mode='xml'):
         """
         Function documentation at:
         http://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.EFetch
-        
-        This function needs a lot of work
-        - documentation
-        - optional parameters
-        
-        Perhaps we want to break out into a Fetch class like Links????
-        
-        Optional Inputs
-        ---------------
-        return_type :
-            - 'abstract'
-                Abstract contains the title and authors and the abstract.
-                TODO: We could parse out only the abstract ...
-            - 'pmid_list' - not sure what this is since we are querying by
-                    pmids ...
 
-
-        Examples
+        See Also
         --------
-        result = api.doc_info('30343668')
-        #TODO: These don't work if as_object = true
-        #TODO: make return_type = 'object' support
-        result = api.doc_info('30343668',return_type='pmid_list')
-        result = api.doc_info('30343668',return_type='abstract')
-        result = api.doc_info('30343668',return_type='medline')
-        result = api.doc_info('30343668',return_type='text')
-        result = api.doc_info('30343668',return_type='xml')
-
-        #medline
-        #----------------------------
-        #PMID- 30343668
-        #OWN - NLM
-        #STAT- MEDLINE
-        #DCOM- 20190320
-        #LR  - 20191101
-        #IS  - 2042-6410 (Electronic)
-        #IS  - 2042-6410 (Linking)
-
-        #text
-        #-----------------------
-        #Pubmed-entry ::= {
-        #  pmid 30343668,
-        #  medent {
-        #    em std {
-        #      year 2018,
-        #      month 10,
-        #      day 23,
-        #      hour 6,
-        #      minute 0
-        #    },
-
-        #xml
-        #------------------------
-
-
+        pubmed.api.Pubmed.
 
         """
 
@@ -651,69 +854,49 @@ class API(object):
         #A full list can be seen at:
         #    https://www.ncbi.nlm.nih.gov/books/NBK25499/table/chapter4.T._valid_values_of__retmode_and/?report=objectonly
 
-        
-        #TODO: Support PMC
-        
-        #????
-        #JAH: What are the diffences in these formats????
 
-        """
-        Document summary	docsum	xml, default
-        List of UIDs in XML	uilist	xml
-        List of UIDs in plain text	uilist	text
-        null - empty string
-        
-                    rettype         retmode
-                    -------         -------
-        summary     docsum          xml
-        uids        uilist          xml            
-        text        null            asn.1
-        xml         null            xml
-        medline     medline         text
-        pmid_list   uilist          text
-        abstract    abstract        text
-        """
-
-        if type(id_or_ids) is list:
+        if isinstance(id_or_ids,list):
             id_string = ','.join(id_or_ids)
         else:
             id_string = id_or_ids
         
-        payload = {'db':'pubmed',
-                   'id':id_string}
+        params = {'db':db_name,
+                   'id':id_string,
+                   'rettype':type,
+                   'retmode':mode}
 
-        if as_object:
-            payload['rettype'] = ''
-            payload['retmode'] = 'xml'
-        elif return_type is None:
-            pass
-        elif return_type is 'text':
-            #default ...
-            payload['rettype'] = ''
-            payload['retmode'] = 'asn.1'
-        elif return_type is 'xml':
-            payload['rettype'] = ''
-            payload['retmode'] = 'xml' 
-        elif return_type is 'medline':
-            payload['rettype'] = 'medline'
-            payload['retmode'] = 'text'
-        elif return_type is 'pmid_list':
-            payload['rettype'] = 'uilist'
-            payload['retmode'] = 'text'
-        elif return_type is 'abstract':
-            payload['rettype'] = 'abstract'
-            payload['retmode'] = 'text'
-        
         url = self._BASE_URL + 'efetch.cgi'  
 
-        #return self._make_request('POST',url,models.DocumentSet,data=payload)
-        if as_object:
-            fh = models.PubmedArticleSet
-        else:
-            fh = models.pass_through
-        return self._make_request('POST',url,fh,
-                                  data=payload,as_json=False)
+        return self._make_request('POST',url,function_handle,params)
     
+    #ID Convertor ---------------------------
+    def _id_convertor(self,id_or_ids,function_handle,id_type='pmid'):
+        """
+        https://www.ncbi.nlm.nih.gov/pmc/tools/id-converter-api/
+        """
+
+        #todo: ask about api support
+
+        URL = ' https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/'
+
+        #Validvaluesare "pmcid", "pmid", "mid", and "doi"
+        #idtype = pmcid
+
+        ids = _get_id_str(id_or_ids)
+
+        params = {'idtype': id_type,
+                  'ids': ids,
+                  'versions': 'no',
+                  'format': 'json'}
+
+        ids2 = ids.split(',')
+
+        return self._make_request('POST', URL, function_handle,
+                                  params, key_ok=False, data_for_response=ids2)
+
+
+        pass
+
     #---- ELink
     #This section is complicated so instead we have .links which points
     #to the Links class which exposes numerous functions
@@ -754,56 +937,40 @@ class API(object):
         match = api.match_citations(citation)
 
         #Ambiguous entry --------
-        citation = CitationMatcherEntry(jtitle='Bioinformatics',year=2015,volume=31)
+        citation = CitationMatcherEntry(journal='Bioinformatics',year=2015,volume=31)
         match = api.match_citations(citation)
 
         #Invalid Journal --------
-        citation = CitationMatcherEntry(jtitle='Bioinfo',year=2015,volume=31)
+        citation = CitationMatcherEntry(journal='Bioinfo',year=2015,volume=31)
         match = api.match_citations(citation)
 
         #Missing Journal - Ambiguous --------
         citation = CitationMatcherEntry(year=2015,volume=31,page1=3897)
         match = api.match_citations(citation)
 
-        #Interesting, this fails hard with the search
-        #raw response is empty ...
-        citation = CitationMatcherEntry(name='RA Gaunt',year=2017)
+
+        citation = CitationMatcherEntry(author='RA Gaunt',year=2017)
         match = api.match_citations(citation)
 
 
-
-        
         Returns
         -------
         models.CitationMatchResult - a list of entries is returned if the input 
         to this function is a list
         """
-        
-        #TODO: 1) retmode not rettype- wrong documentation   
-        #2 - post works (this isn't stated in documentation)
-        #3) retype goes to batch matching gui with 200 
-        #   http://www.ncbi.nlm.nih.gov/pubmed/batchcitmatch?status=0
-        #4) xml - this isn't xml
-        #5) end | not actually required, even though explicity stated as such
-        #6) no need to escape |, but you can
-        
-        
+
         if citation_entries is list:
             is_single = False
-            pass
         else:
             is_single = True
             citation_entries = [citation_entries]
-            
-        #import pdb
-        #pdb.set_trace()
-        
+
         #"key_{:03d}".format(i)
         temp_strings = [x.get_serialized("key_{:03d}".format(i)) for i,x in enumerate(citation_entries)]
         query = '\n'.join(temp_strings)
         query_lengths = [len(x) for x in temp_strings]
         
-        payload = {'db':'pubmed','retmode':'xml','bdata':query}     
+        params = {'db':'pubmed','retmode':'xml','bdata':query}
         
         data_for_response = {
             'query_lengths':query_lengths,
@@ -812,23 +979,126 @@ class API(object):
         
         url = self._BASE_URL + 'ecitmatch.cgi'        
         
-        return self._make_request('POST',url,models.citation_match_parser,
-                                  data=payload,
+        return self._make_request('POST',url,
+                                  models.citation_match_parser,
+                                  params,
                                   data_for_response=data_for_response)
 
-    def __repr__(self):
-        pv = ['email',self.email,
-              'tool',self.tool,
-              'links',cld(self.links),
-              'last_params',td(self.last_params),
-              'last_response',self.last_response,
-              'last_prepped_params',td(self.last_prepped_params),
-              'db_info','Return info on a specific database',
-              'db_list','Return a list of available databases',
-              'doc_summary','Returns summary info on specified Pubmed IDs',
-              'doc_info',"Get's detailed info on specific IDs"]
-        return utils.property_values_to_string(pv)
 
+
+class Authentication(object):
+
+    """
+    TODO: Link to authentication in docs
+    """
+
+    __slots__ = ['email','tool','api_key','rate','last_request_time']
+
+    email : Optional[str]
+    tool : Optional[str]
+    api_key : Optional[str]
+    rate : int
+    last_request_time : float
+
+
+    def __init__(self,email,tool,api_key,rate):
+
+
+        self.email = email
+        self.tool = tool
+        self.api_key = api_key
+
+        #I'm putting these two in here for now :/
+        self.rate = rate
+        self.last_request_time = 0.0
+
+        if self.email is None:
+            if config.email is not None:
+                self.email = config.email
+                self.tool = config.tool
+
+        if self.api_key is None:
+            if config.api_key is not None:
+                self.api_key = config.api_key
+
+        # https://www.ncbi.nlm.nih.gov/books/NBK25497/#_chapter2_Usage_Guidelines_and_Requiremen_
+        if self.rate is None:
+            if self.api_key is not None:
+                self.rate = 10
+            else:
+                self.rate = 3
+
+    def add_auth(self,params,key_ok):
+        # Authentication
+        # -------------------------------------------------
+        if key_ok and self.api_key is not None:
+            params['api_key'] = self.api_key
+        elif self.email is not None:
+            params['email'] = self.email
+            params['tool'] = self.tool
+
+        return params
+
+    def limit_rate(self):
+        dt = time.monotonic() - self.last_request_time
+        min_dt = 1/self.rate
+        if dt < min_dt:
+            wait_time = min_dt-dt
+            time.sleep(wait_time)
+        self.last_request_time = time.monotonic()
+
+    def __repr__(self):
+        return display_class(self,
+                         ['email', quotes(self.email),
+                          'tool', quotes(self.tool),
+                          'api_key', quotes(self.api_key),
+                          'rate', self.rate])
+
+class QueryLogger(object):
+
+    __slots__ = ['method','url','params','response','prepped_params',
+                 'request_duration','parse_time','next_index','request_count']
+
+    def __init__(self):
+        self.request_count = 0
+        self.next_index = 0
+        self.parse_time = [0 for x in range(5)]
+        self.request_duration = [0 for x in range(5)]
+
+    def log_query(self,method,url,params,response,elapsed_time):
+        self.request_count += 1
+        self.method = method
+        self.url = url
+        self.params = params
+        self.response = response
+        self.request_duration[self.next_index] = elapsed_time
+
+        if method == 'POST':
+            self.prepped_params = response.request.body
+        else:
+            partial_url = response.request.path_url
+            r = re.search('\?', partial_url)
+            self.prepped_params = partial_url[r.start()+1:]
+
+    def log_parse_time(self,elapsed_time):
+        #
+        self.parse_time[self.next_index] = elapsed_time
+
+        #Could simplify ...
+        self.next_index += 1
+        if self.next_index == len(self.request_duration):
+            self.next_index = 0
+
+
+    def __repr__(self):
+        return display_class(self,
+                         ['method', quotes(self.method),
+                          'url', quotes(td(self.url)),
+                          'params',td(str(self.params)),
+                          'response', cld(self.response),
+                          'prepped_params', td(self.prepped_params),
+                          'request_duration',self.request_duration,
+                          'parse_time',self.parse_time])
                 
 class Links(object):
     
@@ -867,18 +1137,7 @@ class Links(object):
 
         data_for_response = {'pmids':pmids}
 
-        if isinstance(pmids, list):
-            if isinstance(pmids[0], int):
-                str_list = [str(x) for x in pmids]
-            else:
-                str_list = pmids
-
-            id_param = ','.join(str_list)
-        else:
-            if isinstance(pmids, int):
-                id_param = str(pmids)
-            else:
-                id_param = pmids
+        id_param = _get_id_str(pmids)
 
         params = {'dbfrom':'pubmed',
                   'db':'pmc',
@@ -886,15 +1145,26 @@ class Links(object):
                   'retmode':'json'}
         return self._make_link_request(params,models.PMIDToPMCLinkSets,data_for_response=data_for_response)
     
-    def pmc_to_pmid(self,pmc_ids):
-        pass
-    
-    def _make_link_request(self,params,handler,data_for_response=None):
-        
-        url = self.parent._BASE_URL + 'elink.fcgi'
-        return self.parent._make_request('POST',url,handler,data=params,data_for_response=data_for_response)
+
 
     def __repr__(self):
         pv = ['pmid_to_pmc','Given a PMID, get a PMCID',
               'db_list','Return a list of available databases']
         return utils.property_values_to_string(pv)
+
+def _get_id_str(id_or_ids):
+
+    if isinstance(id_or_ids, list):
+        if isinstance(id_or_ids[0], int):
+            str_list = [str(x) for x in id_or_ids]
+        else:
+            str_list = id_or_ids
+
+        id_param = ','.join(str_list)
+    else:
+        if isinstance(id_or_ids, int):
+            id_param = str(id_or_ids)
+        else:
+            id_param = id_or_ids
+
+    return id_param

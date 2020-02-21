@@ -5,15 +5,17 @@
 class _Quotes(str):
     pass
 
-def quotes(input_string):
-    if input_string is None:
+def quotes(input_value):
+    if input_value is None:
         return None
+    elif isinstance(3,int):
+        return input_value
     else:
-        return _Quotes(input_string)
+        return _Quotes(input_value)
 
 def display_class(class_instance,pv):
     
-    return '%s:\n\n' % type(class_instance) + property_values_to_string(pv,extra_indentation=4)
+    return '\n%s:\n\n' % type(class_instance) + property_values_to_string(pv,extra_indentation=4)
 
 def property_values_to_string(pv,extra_indentation = 0):
     """

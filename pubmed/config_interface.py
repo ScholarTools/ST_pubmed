@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 """
+TODO:
+- document
+- provide tkinter interface
 """
 
 #Standard Library Imports
@@ -31,6 +34,8 @@ class Config(object):
     def __init__(self):        
         self.email = _get(config,'email',None)
         self.tool = _get(config,'tool','Python Scholar Tools')
+        self.api_key = _get(config,'api_key',None)
+
         
 def _get(module,name,default_value):
 

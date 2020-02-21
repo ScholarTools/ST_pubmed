@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-TODO: Do we need the XMLResponseObject????? - get rid of this if not and update
-     the requirements
+
+https://numpydoc.readthedocs.io/en/latest/format.html#documenting-classes
 """
 
 #Standard Imports
 #-----------
 import re
 import pprint
-import shlex
 import inspect
 from typing import Union, List, Optional
 from typing import TYPE_CHECKING
@@ -16,120 +15,112 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .api import CitationMatcherEntry
     from .api import API
-
+    from requests import Response
 
 #Third Party Imports
 #------------------------------
 #from lxml import objectify
-from bs4 import BeautifulSoup
 from bs4.element import Tag
 
 # Local Imports
-from . import utils
-quotes = utils.quotes
-display_class = utils.display_class
-td = utils.get_truncated_display_string
-cld = utils.get_list_class_display
-pv = utils.property_values_to_string
+from .utils import quotes, display_class
+from .utils import get_truncated_display_string as td
+from .utils import get_list_class_display as cld
+from .utils import property_values_to_string as pv
 
-#---- Common
-#====================================
-def pass_through(api,json):
+from .model_helpers import _make_soup, XMLInfo, _list_cld_or_empty, _get_opt_list
+from .model_helpers import _get_opt_soup_string, _get_opt_attr_value, _get_opt_class
+from .model_helpers import _get_opt_soup_int
+
+#==========================================================
+#                   Entry Points
+#==========================================================
+class PubmedArticleSet(object):
+    """
+
+    See Also
+    --------
+    pubmed.api.API.fetch
+    """
+
+    __slots__ = ['xml_info', 'docs']
+
+    xml_info: 'XMLInfo'
+    docs: List['PubmedArticle']
+
+    def __init__(self, api:'API',response:'Response'):
+        data = response.text
+        soup = _make_soup(data)
+        self.xml_info = XMLInfo(soup)
+
+        # Hierarchy:
+        # ----------
+        # pubmedarticleset
+        #   - pubmedarticle
+        # I don't know if we need to do this, might
+        # be better to iterate over contents of the article set
+
+        # articles = soup.find_all('pubmedarticle')
+
+        # TODO: DTD says PubmedArticleSet ((PubmedArticle | PubmedBookArticle)+, DeleteCitation?) >
+        #   Book and Delete not handled ...
+        # TODO: find PubmedArticleSet,re
+        pub_article_set = soup.find('PubmedArticleSet', recursive=false)
+        docs = []
+        for x in pub_article_set.contents:
+            if x.name is None:
+                # newline?
+                pass
+            elif x.name == 'PubmedArticle':
+                docs.append(PubmedArticle(x))
+            elif x.name == 'PubmedBookArticle':
+                raise Exception('PubmedBookArticle not yet handled')
+            elif x.name == 'DeleteCitation':
+                raise Exception('DeleteCitation not yet handled')
+
+        self.docs = docs
+
+    def __repr__(self):
+        return display_class(self,
+                             [
+                                 'xml_info', cld(self.xml_info),
+                                 'docs', _list_cld_or_empty(self.docs)])
+
+
+
+
+def pass_through(api:'API',response:'Response'):
     #This can be used to just pass the raw result back to the user
     #Mostly for debugging ...
-    return json
+    return response
 
-    
-class PrettyDict(dict):
+def get_text(api:'API',response:'Response'):
+    return response.text
 
-    """
-    This was for making a dictionary print pretty by default.
+def get_xml(api:'API',response:'Response'):
+    return _make_soup(response.text)
 
-    """
+def get_json(api:'API',response:'Response'):
+    return response.json()
+
+
+class TermSet(object):
+
+    __slots__ = ['term','field','count','explode']
+
+    def __init__(self,tag):
+        #<!ELEMENT       TermSet    (Term, Field, Count, Explode)>
+        self.term = tag.Term.string
+        self.field = tag.Field.string
+        self.count = int(tag.Count.string)
+        self.explode = tag.Explode.string == 'Y'
+
     def __repr__(self):
-        return '%s' % pprint.pformat(dict(self))
-
-
-class XMLResponseObject(object):
-    # I made this a property so that the user could change this processing
-    # if they wanted. For example, this would allow the user to return authors
-    # as just the raw json (from a document) rather than creating a list of
-    # Persons
-    object_fields = {}
-
-    # Name mapping, keys are new, values are old
-    renamed_fields = {}
-
-    fields = []
-
-    def __init__(self, xml):
-        """
-        This class stores the raw JSON in case an attribute from this instance
-        is requested. The attribute is accessed via the __getattr__ method.
-
-        This design was chosen instead of one which tranfers each JSON object
-        key into an attribute. This design decision means that we don't spend
-        time populating an object where we only want a single attribute.
-
-        Note that the request methods should also support returning the raw JSON.
-        """
-
-        # TODO: Check count, ensure unique values
-        # self.xml_dict = {x.tag:x for x in xml}
-        self.xml = xml
-
-    def __getattr__(self, name):
-
-        """
-        By checking for the name in the list of fields, we allow returning
-        a "None" value for attributes that are not present in the JSON. By
-        forcing each class to define the fields that are valid we ensure that
-        spelling errors don't return none:
-        e.g. document.yeear <= instead of document.year
-        """
-
-        # TODO: We need to support renaming
-        # i.e.
-        if name in self.fields:
-            new_name = name
-        elif name in self.renamed_fields:
-            new_name = name  # Do we want to do object lookup on the new name?
-            name = self.renamed_fields[name]
-        else:
-            raise AttributeError("'%s' object has no attribute '%s'" % (self.__class__.__name__, name))
-
-        value = self.json.get(name)
-
-        # We don't call object construction methods on None values
-        if value is None:
-            return None
-        elif new_name in self.object_fields:
-            # Here we return the value after passing it to a method
-            # fh => function handle
-            #
-            # Only the value is explicitly passed in
-            # Any other information needs to be explicitly bound
-            # to the method
-            method_fh = self.object_fields[new_name]
-            return method_fh(value)
-        else:
-            return value
-
-    @classmethod
-    def __dir__(cls):
-        d = set(dir(cls) + cls.fields())
-        d.remove('fields')
-        d.remove('object_fields')
-
-        return sorted(d)
-
-    @classmethod
-    def fields(cls):
-        """
-        This should be overloaded by the subclass.
-        """
-        return []
-
+        return display_class(self,
+                                 ['term',quotes(self.term),
+                                  'field', quotes(self.field),
+                                  'count', self.count,
+                                  'explode', self.explode])
 
 class ResponseObject(object):
     # I made this a property so that the user could change this processing
@@ -238,7 +229,7 @@ class CitationMatchResult(object):
 
         #Initial logging
         #------------------------
-        self.api
+        self.api = api
         self.entry = entry
         self.raw = raw_text
 
@@ -300,10 +291,10 @@ class CitationMatchResult(object):
     # - 'AMBIGUOUS 26315901,25768914
     # - 'NOT_FOUND'
 
-    def fix_errors(self):
-        raise Exception("Not yet implemented")
-        # Could try and resolve a journal
-        pass
+    #def fix_errors(self):
+    #    raise Exception("Not yet implemented")
+    #    # Could try and resolve a journal
+    #    pass
 
     def get_possible_matches(self):
         pass
@@ -397,84 +388,45 @@ class SummaryResult(object):
                  'pprint_doc(index)','pretty print specified doc'])
 
 
-#TODO: Have a lazy document set as well ...
-class PubmedArticleSet(object):
-    """
+def __info_section():
+    pass
 
-    For: doc_info
-
-    See Also
-    --------
-    pubmed.api.API.fetch
-    """
-    
-    def __init__(self, api, data):
-
-
-        soup = _make_soup(data)
-
-        doctype = soup.contents[1]
-
-        parts = shlex.split(doctype)
-        #1) PubmedArticleSet
-        #2) PUBLIC
-        #3)
-
-        self.doc_type = parts[0]
-        if self.doc_type != 'PubmedArticleSet':
-            raise Exception('Unexpected document type')
-
-        self.dtd_name = parts[2]
-        self.dtd_url = parts[3]
-
-
-
-        # Hierarchy:
-        # ----------
-        # pubmedarticleset
-        #   - pubmedarticle
-        #I don't know if we need to do this, might
-        #be better to iterate over contents of the article set
-
-        #articles = soup.find_all('pubmedarticle')
-
-        pub_article_set = soup.contents[2]
-        #TODO: DTD says PubmedArticleSet ((PubmedArticle | PubmedBookArticle)+, DeleteCitation?) >
-        #   Book and Delete not handled ...
-        self.docs = [PubmedArticle(x) for x in pub_article_set.contents]
-
-
-
-    def __repr__(self):
-        return display_class(self,
-                             [
-                            'docs','[<PubmedEntry>]'])
-
-
-        # Retrieves child tags and ignores navigable strings (in these examples the strings are newlines)
-        # children = articles[0].find_all(True, recursive=False)
-
-
-
-
-
-
-#TODO: Allow a lazy object in addition to full object instantiation
 
 class PubDate(object):
 
+    """
+    https://www.nlm.nih.gov/bsd/licensee/elements_descriptions.html#pubdate
+    "<PubDate> contains the full date on which the issue of the journal was
+    published. The standardized format consists of elements for a 4-digit year,
+     a 3-character abbreviated month, and a 1 or 2-digit day. Every record does
+    not contain all of these elements; the data are taken as they are published
+    in the journal issue, with minor alterations by NLM such as abbreviating
+    months."
+
+    Attributes
+    ----------
+    #TODO
+
+    """
+
     __slots__ = ['year', 'month', 'day', 'season', 'date']
+
+    year: str
+    month: str
+    day: str
+    season: str
+    date: str
+
 
     def __init__(self,date_tag):
         #<!ELEMENT PubDate((Year, ((Month, Day?) | Season)?) | MedlineDate) >
         #<!ELEMENT MedlineDate (#PCDATA) >
 
-
-        self.year = date_tag.year.string
-        self.month = _get_opt_soup_string(date_tag,'month')
-        self.day = _get_opt_soup_string(date_tag,'day')
-        self.season = _get_opt_soup_string(date_tag,'season')
-        self.date = _get_opt_soup_string(date_tag,'medlinedate')
+        self.year = date_tag.Year.string
+        self.month = _get_opt_soup_string(date_tag,'Month')
+        self.day = _get_opt_soup_string(date_tag,'Day')
+        self.season = _get_opt_soup_string(date_tag,'Season')
+        self.date = _get_opt_soup_string(date_tag,'MedlineDate')
 
     def __repr__(self):
         return display_class(self,
@@ -486,17 +438,36 @@ class PubDate(object):
 
 class JournalIssue(object):
 
+    """
+    https://www.nlm.nih.gov/bsd/licensee/elements_descriptions.html#journalissue
+    "This element contains information about the specific issue in which the
+    article cited resides. It has a single attribute, CitedMedium, which
+    indicates whether a citation is processed/indexed at NLM from the online
+    or the print version of the journal. The two valid attribute values are
+    Internet and Print."
+
+    Attributes
+    ----------
+    #TODO
+
+    """
+
     __slots__ = ['volume','issue','pub_date','cited_medium']
 
-    def __init__(self,journal_issue_tag):
+    volume: str
+    issue: str
+    pub_date: PubDate
+    cited_medium: str
+
+    def __init__(self,tag):
         # <!ELEMENT	JournalIssue (Volume?, Issue?, PubDate) >
         # <!ATTLIST	JournalIssue
         #       CitedMedium (Internet | Print) #REQUIRED >
 
-        self.volume = _get_opt_soup_string(journal_issue_tag,'volume')
-        self.issue = _get_opt_soup_string(journal_issue_tag,'issue')
-        self.pub_date = PubDate(journal_issue_tag.pubdate)
-        self.cited_medium = journal_issue_tag['citedmedium']
+        self.volume = _get_opt_soup_string(tag,'Volume')
+        self.issue = _get_opt_soup_string(tag,'Issue')
+        self.pub_date = PubDate(tag.PubDate)
+        self.cited_medium = tag['CitedMedium']
 
     def __repr__(self):
         return display_class(self,
@@ -507,10 +478,24 @@ class JournalIssue(object):
 
 class Journal(object):
 
+    """
+    #https://www.nlm.nih.gov/bsd/licensee/elements_descriptions.html#journal
+    "This is an 'envelop' element that contains various elements describing
+    the journal cited; i.e., ISSN, Volume, Issue, and PubDate and author
+    name(s) [no it doesn't], however, it does not contain data itself."
+
+    Attributes
+    ----------
+
+    """
+
     __slots__ = ['electronic_issn', 'print_issn', 'issue','title','iso_abbreviation']
+
     electronic_issn : Optional[str]
     print_issn : Optional[str]
-
+    issue: JournalIssue
+    title: str
+    iso_abbreviation: str
 
     def __init__(self,journal_tag):
         # <!ELEMENT	Journal (ISSN?, JournalIssue, Title?, ISOAbbreviation?)>
@@ -524,21 +509,18 @@ class Journal(object):
         # ?? Will we ever have more than 2 issn values?
         self.electronic_issn = None
         self.print_issn = None
-        issn_values = journal_tag.find_all('issn',recursive=True)
+        issn_values = journal_tag.find_all('ISSN',recursive=True)
         for issn in issn_values:
-            if issn['issntype'] == 'Electronic':
+            if issn['IssnType'] == 'Electronic':
                 self.electronic_issn = issn.string
-            elif issn['issntype'] == 'Print':
+            elif issn['IssnType'] == 'Print':
                 self.print_issn = issn.string
             else:
                 raise Exception('Unhandled issn type')
 
-        self.issue = JournalIssue(journal_tag.journalissue)
-
-        #   - Title, ISOAbbreviation
-        # -----------------------------
-        self.title = _get_opt_soup_string(journal_tag, 'title')
-        self.iso_abbreviation = _get_opt_soup_string(journal_tag, 'isoabbreviation')
+        self.issue = JournalIssue(journal_tag.JournalIssue)
+        self.title = _get_opt_soup_string(journal_tag, 'Title')
+        self.iso_abbreviation = _get_opt_soup_string(journal_tag, 'ISOAbbreviation')
 
     def __repr__(self):
         return display_class(self,
@@ -550,26 +532,49 @@ class Journal(object):
 
 class Pagination(object):
 
-    __slots__ = ['start_page','end_page','medline_pgn']
+    """
+    https://www.nlm.nih.gov/bsd/licensee/elements_descriptions.html#pagination
+    "<Pagination> indicates the inclusive pages for the article cited. The
+    pagination can be entirely non-digit data and redundant digits are omitted.
+    Document numbers for electronic articles are found here. <ELocationID> was
+    defined for use in 2008 and may reside on records either in lieu of
+    Pagination or, for items with both print and electronic locations, in
+    addition to the Pagination element.
 
-    def __init__(self,page_tag):
+    The complete pagination is found in the <MedlinePgn> element. The
+    <StartPage> and <EndPage> elements are not currently used and are
+    reserved for future use.
+
+    Examples are:
+
+    <MedlinePgn>12-9</MedlinePgn>
+    <MedlinePgn>304- 10</MedlinePgn>
+    <MedlinePgn>335-6</MedlinePgn>
+    <MedlinePgn>1199-201</MedlinePgn>
+    <MedlinePgn>24-32, 64</MedlinePgn>
+    <MedlinePgn>34, 72, 84 passim</MedlinePgn>
+    <MedlinePgn>31-7 cntd</MedlinePgn>
+    <MedlinePgn>176-8 concl</MedlinePgn>"
+
+    Parent: Article
+
+    """
+
+    __slots__ = ['medline_pgn']
+
+    def __init__(self,tag):
         # <!ELEMENT	Pagination ((StartPage, EndPage?, MedlinePgn?) | MedlinePgn) >
         # <!ELEMENT	MedlinePgn (#PCDATA) >
 
-        self.start_page = page_tag.string
-        self.end_page = _get_opt_soup_string(page_tag,'endpage')
-        self.medline_pgn = _get_opt_soup_string(page_tag,'medlinepgn')
+        #Note, this is optional given | MedlinePgn
+        #Reserved for future use ...
+        #self.start_page = _get_opt_soup_string(tag,'StartPage')
+        #self.end_page = _get_opt_soup_string(tag,'EndPage')
+        self.medline_pgn = _get_opt_soup_string(tag,'MedlinePgn')
 
     def __repr__(self):
         return display_class(self,
-                                 ['start_page',self.start_page,
-                                'end_page',self.end_page,
-                                'medline_pgn',self.medline_pgn])
-
-#TODO:
-#- Grants
-#- Pub_Types
-#- Dates (for Article)
+                                 ['medline_pgn',quotse(self.medline_pgn)])
 
 class Identifier(object):
 
@@ -580,7 +585,7 @@ class Identifier(object):
         # <!ATTLIST Identifier
         #           Source CDATA  # REQUIRED >
 
-        self.source = tag['source']
+        self.source = tag['Source']
         self.value = tag.string
 
     def __repr__(self):
@@ -590,14 +595,21 @@ class Identifier(object):
 
 class AffiliationInfo(object):
 
+    """
+
+    Attributes
+    ----------
+
+    """
+
     __slots__ = ['value','identifiers']
 
     def __init__(self,tag):
-        # <!ELEMENT Affiliation( % text;) * >
         # <!ELEMENT AffiliationInfo(Affiliation, Identifier *) >
+        # <!ELEMENT Affiliation( % text;) * >
 
-        self.value = tag.affiliation.string
-        self.identifiers = _get_opt_list(tag,'identifier',Identifier)
+        self.value = tag.Affiliation.string
+        self.identifiers = _get_opt_list(tag,'Identifier',Identifier)
 
     def __repr__(self):
         return display_class(self,
@@ -606,47 +618,31 @@ class AffiliationInfo(object):
 
 
 class Author(object):
+
+    """
+    # https://www.nlm.nih.gov/bsd/licensee/elements_descriptions.html#authorlist
+
+    """
     __slots__ = ['last_name','fore_name','initials','suffix','collective_name',
                  'identifiers','affiliations','is_valid','equal_contrib']
 
-    def __init__(self,author_tag):
-        # https://www.nlm.nih.gov/bsd/licensee/elements_descriptions.html#authorlist
+    def __init__(self,tag):
         # <!ELEMENT AuthorList(Author +) >
         # <!ATTLIST AuthorList
         #       CompleteYN (Y | N) "Y"
         #       Type(authors | editors)  # IMPLIED >
-        #
         # <!ELEMENT Author(((LastName, ForeName?, Initials?, Suffix?) | CollectiveName), Identifier *, AffiliationInfo *) >
         # <!ATTLIST Author
         #       ValidYN(Y | N) "Y"
         #       EqualContrib(Y | N)  # IMPLIED >
-        #
         # <!ELEMENT	CollectiveName (%text;)*>
-
-
-
-
-        """
-        author = {
-            'last_name': None,
-            'fore_name': None,
-            'initials': None,
-            'suffix': None,
-            'collective_name': None,
-            'identifiers': None,
-            'affiliations': None
-        }
-        """
-
-        self.is_valid = _get_opt_attr_value(author_tag, 'validyn',
-                                            default='Y') == 'Y'
-        self.equal_contrib = _get_opt_attr_value(author_tag,
-                                                 'equalcontrib',
+        self.is_valid = _get_opt_attr_value(tag, 'ValidYN', default='Y') == 'Y'
+        self.equal_contrib = _get_opt_attr_value(tag, 'EqualContrib',
                                                  default='N') == 'Y'
 
-        last_name_tag = author_tag.lastname
+        last_name_tag = author_tag.LastName
         if last_name_tag is None:
-            self.collective_name = author_tag.collectivename.string
+            self.collective_name = tag.CollectiveName.string
             self.last_name = None
             self.fore_name = None
             self.initials = None
@@ -654,50 +650,77 @@ class Author(object):
         else:
             self.collective_name = None
             self.last_name = last_name_tag.string
-            self.fore_name = _get_opt_soup_string(author_tag,'forename')
-            self.initials = _get_opt_soup_string(author_tag, 'initials')
-            self.suffix = _get_opt_soup_string(author_tag, 'suffix')
+            self.fore_name = _get_opt_soup_string(tag,'ForeName')
+            self.initials = _get_opt_soup_string(tag, 'Initials')
+            self.suffix = _get_opt_soup_string(tag, 'Suffix')
 
-        # Identifier *
-        # -----------------------------------------------
-        self.identifiers = _get_opt_list(author_tag,'identifier',Identifier)
-
-        #AffiliationInfo *
-        #-----------------------------------------------
-        self.affiliations = _get_opt_list(author_tag,'affiliationinfo',AffiliationInfo)
+        self.identifiers = _get_opt_list(tag,'Identifier',Identifier)
+        self.affiliations = _get_opt_list(tag,'AffiliationInfo',AffiliationInfo)
 
     def __repr__(self):
         return display_class(self,
-                             ['collective_name', self.collective_name,
-                              'last_name',self.last_name,
-                              'fore_name',self.fore_name,
-                              'initials',self.initials,
-                              'suffix',self.suffix,
+                             ['collective_name',quotes(self.collective_name),
+                              'last_name',quotes(self.last_name),
+                              'fore_name',quotes(self.fore_name),
+                              'initials',quotes(self.initials),
+                              'suffix',quotes(self.suffix),
                               'identifiers', _list_cld_or_empty(self.identifiers),
                               'affiliations', _list_cld_or_empty(self.affiliations)])
 
 class ArticleDate(object):
 
-    __slots__ = ['year','month','day']
+    """
+    https://www.nlm.nih.gov/bsd/licensee/elements_descriptions.html#articledate
+    "<ArticleDate> contains the date the publisher made an electronic version
+    of the article, with the month represented as a 2-digit numeric rather
+    than an alphabetic abbreviation as is the case for the month in PubDate.
+    A record includes <ArticleDate> only if that data is included in the
+    publisher's electronic submission to NLM, and it may be present on records
+    with <Article> PubModel attribute values of Electronic, Print-Electronic,
+    Electronic-Print or Electronic-eCollection."
+
+    Attributes
+    ----------
+
+    """
+
+    __slots__ = ['year','month','day','type']
+
+    year: str
+    month: str
+    day: str
+    type : str
 
     def __init__(self,tag):
         #<!ELEMENT ArticleDate(Year, Month, Day) >
         #<!ATTLIST ArticleDate
         #   DateType CDATA  #FIXED "Electronic" >
 
-        self.year = tag.year.string
-        self.month = tag.month.string
-        self.day = tag.day.string
+        self.year = tag.Year.string
+        self.month = tag.Month.string
+        self.day = tag.Day.string
+        self.type = 'electronic'
 
     def __repr__(self):
         return display_class(self,
-                             ['year',self.year,
-                              'month',self.month,
-                              'day',self.day])
+                             ['year',quotes(self.year),
+                              'month',quotes(self.month),
+                              'day',quotes(self.day),
+                            'type',self.type])
 
 class Grant(object):
 
+    """
+
+
+    """
+
     __slots__ = ['grant_id','acronym','agency','country']
+
+    grant_id: str
+    acronym: str
+    agency: str
+    country: str
 
     def __init__(self,tag):
         #<!ELEMENT Grant(GrantID?, Acronym?, Agency, Country) >
@@ -706,21 +729,25 @@ class Grant(object):
         #<!ELEMENT Agency(#PCDATA) >
         #<!ELEMENT Country(#PCDATA) >
 
-       self.grant_id = _get_opt_soup_string(tag,'grantid')
-       self.acronym = _get_opt_soup_string(tag,'acronym')
-       self.agency = tag.agency.string
-       self.country = tag.country.string
+       self.grant_id = _get_opt_soup_string(tag,'GrantID')
+       self.acronym = _get_opt_soup_string(tag,'Acronym')
+       self.agency = tag.Agency.string
+       self.country = tag.Country.string
 
     def __repr__(self):
         return display_class(self,
-                             ['grant_id',self.grant_id,
-                              'acronym',self.acronym,
-                              'agency',self.agency,
-                              'country',self.country])
+                             ['grant_id',quotes(self.grant_id),
+                              'acronym',quotes(self.acronym),
+                              'agency',quotes(self.agency),
+                              'country',quotes(self.country)])
+
 
 class DataBank(object):
 
     __slots__ = ['name','accession_numbers']
+
+    name: str
+    accession_numbers : List[str]
 
     def __init__(self,tag):
         # <!ELEMENT DataBank(DataBankName, AccessionNumberList?) >
@@ -728,9 +755,9 @@ class DataBank(object):
         # <!ELEMENT AccessionNumber(#PCDATA) >
         # <!ELEMENT AccessionNumberList(AccessionNumber +) >
 
-        self.name = tag.databankname.string
+        self.name = tag.DataBankName.string
 
-        number_list_tag = tag.accessionnumberlist
+        number_list_tag = tag.AccessionNumberList
         if number_list_tag is None:
             self.accession_numbers = None
         else:
@@ -741,9 +768,17 @@ class DataBank(object):
                              ['name',self.name,
                               'accession_numbers',cld(self.accession_numbers)])
 
+
 class PublicationType(object):
 
+    """
+
+    """
+
     __slots__ = ['ui','value']
+
+    value: str
+    ui: str
 
     def __init__(self,tag):
         # <!ELEMENT PublicationType(  # PCDATA) >
@@ -751,13 +786,13 @@ class PublicationType(object):
         #           UI CDATA  # REQUIRED >
 
 
-        self.ui = tag['ui']
+        self.ui = tag['UI']
         self.value = tag.string
 
     def __repr__(self):
         return display_class(self,
-                             ['ui',self.ui,
-                              'value',self.value])
+                             ['ui',quotes(self.ui),
+                              'value',quotes(self.value)])
 
 class Article(object):
 
@@ -765,26 +800,39 @@ class Article(object):
                  'dates','doi','grants','journal','languages','pagination','pii',
                  'pub_types','title','vernacular_title']
 
-    """
-    Called from MedlineCitation
+    journal: Journal
+    title: str
+    pagination: Pagination
+    doi: Optional[str]
+    pii: Optional[str]
+    abstract_copyright_info: Optional[str]
+    abstracts: List[str]
+    authors: List['Author']
+    languages: List[str]
+    databanks: Optional[List['DataBank']]
+    grants: Optional[List['Grant']]
+    pub_types: List['PublicationType']
+    vernacular_title : Optional[str]
+    dates: List[ArticleDate]
 
-    <!ELEMENT	Article (
-                    X Journal,
-                    X ArticleTitle,
-                    X ((Pagination, ELocationID*) | ELocationID+),
-                    X Abstract?,
-                    X AuthorList?,
-                    X Language+,
-                    X DataBankList?,
-                    X GrantList?,
-                    X PublicationTypeList,
-                    X VernacularTitle?,
-                     ArticleDate*) >
-    """
 
     def __init__(self, soup):
+        # Called from MedlineCitation
+        #
+        # <!ELEMENT	Article (
+        #                X Journal,
+        #                X ArticleTitle,
+        #                X ((Pagination, ELocationID*) | ELocationID+),
+        #                X Abstract?,
+        #                X AuthorList?,
+        #                X Language+,
+        #                X DataBankList?,
+        #                X GrantList?,
+        #                X PublicationTypeList,
+        #                X VernacularTitle?,
+        #                X ArticleDate*) >
 
-        self.journal = Journal(soup.journal)
+        self.journal = Journal(soup.Journal)
 
         #ArticleTitle
         #-----------------------------------------------------
@@ -795,11 +843,11 @@ class Article(object):
 		#	 "book		CDATA			#IMPLIED
 		#	  part		CDATA			#IMPLIED
 		#	 sec		CDATA			#IMPLIED"  >
-        self.title = soup.articletitle.string
+        self.title = soup.ArticleTitle.string
 
         #((Pagination, ELocationID*) | ELocationID+)
         #--------------------------------------------
-        self.pagination = _get_opt_class(soup,'pagination',Pagination)
+        self.pagination = _get_opt_class(soup,'Pagination',Pagination)
 
         # <!ELEMENT	ELocationID (#PCDATA) >
         # <!ATTLIST	ELocationID
@@ -808,16 +856,16 @@ class Article(object):
 
         self.doi = None
         self.pii = None
-        elocation_ids = soup.find_all('elocationid',recursive=False)
+        elocation_ids = soup.find_all('ELocationID',recursive=False)
         for elocation in elocation_ids:
-            type = elocation['eidtype']
+            type = elocation['EIdType']
             #Note, I like having doi and pii as attributes
             #unfortunately we don't support logging these values
             #when they are invalid if we only record the value directly
             #
             #would need to add additional attributes ('is_valid_doi') or
             #make structure more complicated
-            if _get_opt_attr_value(elocation,'validyn','Y') == 'Y':
+            if _get_opt_attr_value(elocation,'ValidYN','Y') == 'Y':
                 if type == 'doi':
                     self.doi = elocation.string
                 elif type == 'pii':
@@ -834,74 +882,68 @@ class Article(object):
         #
         #<!ELEMENT	CopyrightInformation (#PCDATA) >
 
-        abstract_tag = soup.abstract
+        abstract_tag = soup.Abstract
 
         self.abstract_copyright_info = None
         self.abstracts = None
         if abstract_tag is not None:
-            abstract_text_tags = abstract_tag.find_all('abstracttext')
+            abstract_text_tags = abstract_tag.find_all('AbstractText')
             self.abstracts = [x.string for x in abstract_text_tags]
 
-            copy_tag = abstract_tag.copyrightinformation
+            copy_tag = abstract_tag.CopyrightInformation
             if copy_tag is not None:
                 self.abstract_copyright_info = copy_tag.string
 
 
-        #----------------------------------------------------------------------
-        #                           AuthorList?
+        # AuthorList?
         #----------------------------------------------------------------------
         self.authors = _get_opt_list(soup.authorlist,'author',Author)
 
-        #----------------------------------------------------------------------
-        #                           Language+
+        # Language+
         #----------------------------------------------------------------------
         #<!ELEMENT	Language (#PCDATA) >
-        lang_tag = soup.find_all('language',recursive=False)
+        lang_tag = soup.find_all('Language',recursive=False)
         self.languages = [x.string for x in lang_tag]
 
-        #----------------------------------------------------------------------
-        #                           DataBankList?
+        # DataBankList?
         #----------------------------------------------------------------------
         #<!ELEMENT DataBankList(DataBank+)>
         #<!ATTLIST DataBankList
         #   CompleteYN(Y | N) "Y" >
 
-        self.databanks = _get_opt_list(soup.databanklist,'databank',DataBank)
+        #Note, CompleteYN is not handled currently ...
+        self.databanks = _get_opt_list(soup.DataBankList,'DataBank',DataBank)
 
-        #----------------------------------------------------------------------
-        #                           GrantList?
+        # GrantList?
         #----------------------------------------------------------------------
         #<!ELEMENT GrantList(Grant+) >
         #<!ATTLIST GrantList
         #       CompleteYN(Y | N) "Y" >
-        self.grants = _get_opt_list(soup.grantlist,'grant',Grant)
+        self.grants = _get_opt_list(soup.GrantList,'grant',Grant)
 
-        #----------------------------------------------------------------------
-        #                           PublicationTypeList
+        # PublicationTypeList
         #----------------------------------------------------------------------
         #<!ELEMENT PublicationTypeList (PublicationType+) >
-        self.pub_types = _get_opt_list(soup.publicationtypelist,'publicationtype',PublicationType)
+        self.pub_types = _get_opt_list(soup.PublicationTypeList,'PublicationType',PublicationType)
 
-        #----------------------------------------------------------------------
-        #                           VernacularTitle?
+        # VernacularTitle?
         #----------------------------------------------------------------------
         #< !ELEMENT VernacularTitle( % text; | mml: math) * >
-        self.vernacular_title = _get_opt_soup_string(soup,'vernaculartitle')
+        self.vernacular_title = _get_opt_soup_string(soup,'VernacularTitle')
 
+        # ArticleDate*
         #----------------------------------------------------------------------
-        #                           ArticleDate*
-        #----------------------------------------------------------------------
-        self.dates = _get_opt_list(soup,'articledate',ArticleDate)
+        self.dates = _get_opt_list(soup,'ArticleDate',ArticleDate)
 
     def __repr__(self):
         return display_class(self,
                                  ['journal',cld(self.journal),
                                   'title',quotes(td(self.title)),
-                                  'abstract_copyright_info',td(self.abstract_copyright_info),
+                                  'abstract_copyright_info',quotes(td(self.abstract_copyright_info)),
                                   'abstracts',cld(self.abstracts),
                                   'pagination',cld(self.pagination),
-                                  'doi',self.doi,
-                                  'pii',self.pii,
+                                  'doi',quotes(self.doi),
+                                  'pii',quotse(self.pii),
                                   'authors',_list_cld_or_empty(self.authors),
                                   'languages',td(self.languages),
                                   'databanks',_list_cld_or_empty(self.databanks),
@@ -911,6 +953,12 @@ class Article(object):
                                   'dates',_list_cld_or_empty(self.dates)])
 
 class PubmedArticle(object):
+
+    """
+
+    Parent: PubmedArticleSet
+
+    """
 
     __slots__ = ['soup','citation','pubmed_data']
 
@@ -924,8 +972,8 @@ class PubmedArticle(object):
         #For debugging ...
         self.soup = soup
 
-        self.citation = MedlineCitation(soup.medlinecitation)
-        pubmed_data = soup.pubmeddata
+        self.citation = MedlineCitation(soup.MedlineCitation)
+        pubmed_data = soup.PubmedData
         if pubmed_data is None:
             self.pubmed_data = None
         else:
@@ -952,13 +1000,13 @@ class PubmedPubDate(object):
 
         #TODO: Consider a date display
 
-        self.year = tag.year.string
-        self.month = tag.month.string
-        self.day = tag.day.string
-        self.hour = _get_opt_soup_string(tag,'hour')
-        self.minute = _get_opt_soup_string(tag, 'minute')
-        self.second = _get_opt_soup_string(tag, 'second')
-        self.status = tag['pubstatus']
+        self.year = tag.Year.string
+        self.month = tag.Month.string
+        self.day = tag.Day.string
+        self.hour = _get_opt_soup_string(tag,'Hour')
+        self.minute = _get_opt_soup_string(tag, 'Minute')
+        self.second = _get_opt_soup_string(tag, 'Second')
+        self.status = tag['PubStatus']
 
     def __repr__(self):
         return display_class(self,
@@ -1005,9 +1053,9 @@ class ReferenceList(object):
         #< !ELEMENT ReferenceList(Title?, Reference *, ReferenceList *) >
         #<!ELEMENT	Citation       (%text; | mml:math)*>
         #<!ELEMENT	Title (#PCDATA) >
-        self.title = _get_opt_soup_string(tag,'title')
-        self.references = _get_opt_list(tag,'reference',Reference)
-        self.ref_lists = _get_opt_list(tag,'referencelist',ReferenceList)
+        self.title = _get_opt_soup_string(tag,'Title')
+        self.references = _get_opt_list(tag,'Reference',Reference)
+        self.ref_lists = _get_opt_list(tag,'ReferenceList',ReferenceList)
 
     def __repr__(self):
         return display_class(self,
@@ -1016,6 +1064,12 @@ class ReferenceList(object):
                               'ref_lists',_list_cld_or_empty(self.ref_lists)])
 
 class ArticleID(object):
+
+    """
+
+
+
+    """
 
     __slots__ = ['value','type']
 
@@ -1029,7 +1083,7 @@ class ArticleID(object):
         #           sici | pubmed | medline | pmcid | pmcbook | bookaccession) "pubmed" >
         #<!ELEMENT	ArticleIdList (ArticleId+)>
         self.value = tag.string
-        self.type = tag['idtype']
+        self.type = tag['IdType']
 
     def __repr__(self):
         return display_class(self,
@@ -1037,6 +1091,12 @@ class ArticleID(object):
                               'type',self.type])
 
 class Reference(object):
+
+    """
+    parent : ReferenceList
+
+
+    """
 
     __slots__ = ['citation','article_ids']
 
@@ -1047,23 +1107,18 @@ class Reference(object):
         #< !ELEMENT Reference(Citation, ArticleIdList?) >
         #<!ELEMENT	Citation       (%text; | mml:math)*>
 
-        self.citation = tag.citation.string
-        self.article_ids = _get_opt_list(tag.articleidlist,'articleid',ArticleID)
-
-        #for id in self.article_ids:
-        #    if id.type == 'pmid'
-        #TODO: Support doi, and PMID pull outs
-
+        self.citation = tag.Citation.string
+        self.article_ids = _get_opt_list(tag.ArticleIdList,'articleid',ArticleID)
 
     def __repr__(self):
         return display_class(self,
-                             ['citation', self.citation,
+                             ['citation', quotes(self.citation),
                               'article_ids',_list_cld_or_empty(self.article_ids)])
 
 
 class PubmedData(object):
 
-    __slots__ = ['history','publication_status','doi','pii','pmcpid',
+    __slots__ = ['soup','history','publication_status','doi','pii','pmcpid',
                  'pmpid','pmc','mid','sici','pubmed','medline','pmcid','pmcbook',
                  'bookaccession','ref_lists']
 
@@ -1123,6 +1178,8 @@ class PubmedData(object):
     def __init__(self,tag):
         #<!ELEMENT	PubmedData (History?, PublicationStatus, ArticleIdList, ObjectList?, ReferenceList*) >
 
+        self.soup = tag
+
         #History?
         #----------------------------------------
         #<!ELEMENT	History (PubMedPubDate+) >
@@ -1159,7 +1216,7 @@ class PubmedData(object):
         self.pmcbook = None
         self.bookaccession = None
 
-        id_list = tag.articleidlist
+        id_list = tag.ArticleIdList
         ids = id_list.find_all('ArticleId',recursive=False)
         for id in ids:
             type = _get_opt_attr_value(id,'IdType','pubmed')
@@ -1218,15 +1275,15 @@ class DateCompleted(object):
 
     def __init__(self,tag:Tag):
         #<!ELEMENT DateCompleted(Year, Month, Day) >
-        self.year = tag.year.string
-        self.month = tag.month.string
-        self.day = tag.day.string
+        self.year = tag.Year.string
+        self.month = tag.Month.string
+        self.day = tag.Day.string
 
     def __repr__(self):
         return display_class(self,
-                             ['Year', self.year,
-                              'Month', self.month,
-                              'Day',self.day])
+                             ['Year', quotes(self.year),
+                              'Month', quotes(self.month),
+                              'Day',quotes(self.day)])
 
 class DateRevised(object):
 
@@ -1234,6 +1291,10 @@ class DateRevised(object):
     """
 
     __slots__ = ['year', 'month', 'day']
+
+    year : str
+    month : str
+    day : str
 
     def __init__(self,tag:Tag):
         #<!ELEMENT DateRevised(Year, Month, Day) >
@@ -1243,9 +1304,9 @@ class DateRevised(object):
 
     def __repr__(self):
         return display_class(self,
-                             ['year', self.year,
-                              'month', self.month,
-                              'day',self.day])
+                             ['year', quotes(self.year),
+                              'month', quotes(self.month),
+                              'day',quotes(self.day)])
 
 class MedlineJournalInfo(object):
 
@@ -1299,7 +1360,7 @@ class Chemical(object):
 
         self.registry_number = tag.RegistryNumber.string
         self.substance_name = tag.NameOfSubstance.string
-        self.ui = tag.NameOfSubstance['ui']
+        self.ui = tag.NameOfSubstance['UI']
 
     def __repr__(self):
         return display_class(self,
@@ -1378,7 +1439,7 @@ class QualifierName(object):
         #   UI CDATA  # REQUIRED >
 
         self.name = tag.string
-        self.is_major = _get_opt_attr_value(d_name,'MajorTopicYN','N')
+        self.is_major = _get_opt_attr_value(tag,'MajorTopicYN','N')
         self.ui = tag['UI']
 
     def __repr__(self):
@@ -1407,6 +1468,9 @@ class Keyword(object):
 class KeywordList(object):
 
     __slots__ = ['owner','keywords']
+
+    owner: str
+    keywords: List[str]
 
     def __init__(self,tag):
         #<!ELEMENT KeywordList(Keyword +) >
@@ -1441,7 +1505,7 @@ class MeshHeading(object):
         d_name = tag.DescriptorName
         self.name = d_name.string
         self.is_major = _get_opt_attr_value(d_name,'MajorTopicYN','N')
-        self.ui = tag['UI']
+        self.ui = d_name['UI']
         self.qualifiers = _get_opt_list(tag,'QualifierName',QualifierName)
 
     def __repr__(self):
@@ -1453,11 +1517,11 @@ class MeshHeading(object):
 
 class OtherID(object):
 
-    __slots__ = ['value','source']
-
     """
     https://www.nlm.nih.gov/bsd/licensee/elements_descriptions.html#otherid
     """
+
+    __slots__ = ['value','source']
 
     def __init__(self,tag):
         #< !ELEMENT OtherID(  # PCDATA) >
@@ -1555,6 +1619,12 @@ class PersonalNameSubject(object):
                               'suffix', quotes(self.suffix)])
 
 class MedlineCitation(object):
+
+    """
+
+    Parent: PubmedArticle
+
+    """
 
     __slots__ = ['pmid',
                  'date_completed',
@@ -1762,26 +1832,8 @@ class MedlineCitation(object):
                             #'keywords',td(str(self.keywords)),
                             #'mesh_headings',td(str(self.mesh_headings))])
 
-
-"""
-class PubmedEntryLazyAttributes(XMLResponseObject):
-
-
-    def __init__(self, soup):
-        super().__init__(soup)
-        import pdb
-        pdb.set_trace()
-
-        children = soup.find_all(True, recursive=False)
-
-        # medlinecitation
-        # pubmeddata
-"""
-
-
-
-
-
+def __link_section():
+    pass
 
 def PMID_to_PMC_results(data):
     #TODO:
@@ -1802,128 +1854,8 @@ def PMID_to_PMC_results(data):
 #
 #This link() endpoint is useful for getting some cited by
 #information but is not the best ...
-class PMIDToPMCLinkSets(object):
-
-    def __init__(self, data, input_data):
-        #header
-        #linksets
-
-        #Header
-        #------------
-        header = data['header']
-        self.type = header['type']
-        self.version = header['version']
-
-        linksets = data['linksets']
-
-        #This appears to always be of length 1?
-
-        #TODO: Need to hold onto user's request so that
-        #we can make that the key ...
-
-        #list of dictionaries
-        #.dbfrom - 'pubmed'
-        #.ids - ['20363814']
-        #.linksetdbs
-        #      [0]
-        #          .dbto : 'pmc'
-        #          .linkname : 'pubmed_pmc'
-        #          .links : [PMCID value as string'
-        #      [1]
-        #          .dbto : 'pmc'
-        #          .linkname : 'pubmed_pmc_refs'
-        #          .links : ['pmcs of references'
-        #
-        #       This looks like it may be PMCs of papers citing this paper
-        #
-        #
-        #      [2]
-        #      #    pubmed_pmc_local
-
-        #TODO: Do multiple values, is length of linksets
-        #increased or length of ids???
-        import pdb
-        pdb.set_trace()
 
 
-class SearchResult(ResponseObject):
-    
-    """    
-    Response to search()
-    
-    Attributes
-    ----------
-    """
-
-    renamed_fields = {
-        'ids': 'idlist',
-        'translation_set': 'translationset',
-        'ret_start': 'retstart',
-        'ret_max': 'retmax',
-        'query_translation': 'querytranslation',
-        'translation_stack': 'translationstack'}
-    
-    fields = ['version', 'count', 'querykey', 'webenv']
-    
-    def __init__(self,api,json):
-        # The input json has 2 things, header and esearchresult
-        # The header only specifies the object type and version
-        self.api = api
-        self.version = json['header']['version']        
-        
-        super(SearchResult, self).__init__(json['esearchresult'])       
-
-    def get_doc_info(self,index):
-        pass
-    # TODO: Include navigation methods: Is this part
-        
-    def __repr__(self):
-        return pv([
-        'version',self.version,
-        'count',self.count,
-        'ids',cld(self.ids),
-        'translation_set',self.translation_set,
-        'ret_start',self.ret_start,
-        'ret_max',self.ret_max,
-        'translation_stack',self.translation_stack,
-        'querykey',self.querykey,
-        'webenv',self.webenv])
 
 
-def _make_soup(data):
-    #TODO: Is there a fallback if lxml is not installed?
-    return BeautifulSoup(data,'lxml-xml')
 
-def _get_opt_soup_string(soup,field_name):
-    temp_tag = getattr(soup,field_name)
-    if temp_tag is None:
-        return None
-    else:
-        return temp_tag.string
-
-def _get_opt_attr_value(tag,attr_name,default=None):
-    if attr_name in tag.attrs:
-        return tag[attr_name]
-    else:
-        return default
-
-def _get_opt_class(tag,name,function_handle):
-    #if tags exists - create class, otherwise none
-    temp_tag = getattr(tag,name)
-    if temp_tag is None:
-        return None
-    else:
-        return function_handle(temp_tag)
-
-def _get_opt_list(list_or_None,child_tag_name,function_handle):
-    if list_or_None is None:
-        return []
-    else:
-        temp = list_or_None.find_all(child_tag_name,recursive=False)
-        return [function_handle(x) for x in temp]
-
-def _list_cld_or_empty(value):
-    if len(value) > 0:
-        return cld(value)
-    else:
-        return '[]'
