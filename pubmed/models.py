@@ -35,6 +35,7 @@ from .model_helpers import _get_opt_soup_int
 #==========================================================
 #                   Entry Points
 #==========================================================
+
 class PubmedArticleSet(object):
     """
 
@@ -65,7 +66,7 @@ class PubmedArticleSet(object):
         # TODO: DTD says PubmedArticleSet ((PubmedArticle | PubmedBookArticle)+, DeleteCitation?) >
         #   Book and Delete not handled ...
         # TODO: find PubmedArticleSet,re
-        pub_article_set = soup.find('PubmedArticleSet', recursive=false)
+        pub_article_set = soup.find('PubmedArticleSet', recursive=False)
         docs = []
         for x in pub_article_set.contents:
             if x.name is None:
@@ -93,6 +94,138 @@ def pass_through(api:'API',response:'Response'):
     #This can be used to just pass the raw result back to the user
     #Mostly for debugging ...
     return response
+
+#For right now everything will be a list
+#Could make somethings a list and some things not
+MEDLINE_LIST_INFO = {''}
+
+class PMID_MESH_Summary(object):
+
+    def __init__(self,id_or_ids,mesh_list):
+        """
+
+        Parameters
+        ----------
+        mesh_list : List[List[str]]
+            The outer list is for each ID. The inner list is a list of MESH
+            elements in that document.
+
+        """
+
+        #Things to do
+
+        #1) summary of unique MESH elements
+        #2) count for each
+        #3) for each unique, indices of the original ids that match up
+
+        #When searching
+
+        temp_list = []
+        for x in mesh_list:
+            temp_list.extend(x)
+
+        self.unique_mesh = sorted(set(temp_list))
+
+        counts = {x:0 for x in self.unique_mesh}
+
+        for x in temp_list:
+            counts[x] += 1
+
+        seq = [y for x,y in counts.items()]
+
+        #Ugh ... THis is better with numpy ...
+        I = sorted(range(len(seq)), key=seq.__getitem__)
+        I.reverse()
+
+        count_keys = list(counts.keys())
+        sorted_keys = [count_keys[x] for x in I]
+
+        temp = {}
+        #Note, this really only works in Python 3.6+ I think
+        #- ordered by insertion order
+        for k in sorted_keys:
+            temp[k] = counts[k]
+
+        self.counts = temp
+
+        #Apparently this doesn't maintain order
+        #TODO: Use pandas ...
+        #self.counts = {k:counts[k] for k in sorted_keys}
+
+        #I'm not getting a lot that is shared. Do we get
+        #better results by looking at the hierarchy
+
+        #??? What else do I want to do here?
+
+        import pdb
+        pdb.set_trace()
+
+        pass
+
+def get_medline(api:'API',response:'Response'):
+    text = response.text
+
+    #Note: Entries start with an empty line
+
+    #Parsing something like:
+    #PMID- 30343668
+    #OWN - NLM
+    #STAT- MEDLINE
+
+    #General format
+    #- 2-4 character key
+    #- value always starts at specific position
+    #- some values wrap, start at same location
+
+
+    output_list = []
+
+    temp_dict = {}
+    last_key = ''
+    last_value = None
+
+    #TODO: We could set the first key
+    #then omit the last_key check
+    lines = text.splitlines()
+    #I've found the first line to be empty ...
+    if lines[0]:
+        I = 0
+    else:
+        I = 1
+    for line in lines[I:]:
+        if line:
+            key = line[0:4].rstrip()
+            response = line[6:]
+
+            #We could do a second loop after we get
+            #the first key ...
+            if key:
+                if last_key:
+                    if last_key in temp_dict:
+                        temp_dict[last_key].append(last_value)
+                    else:
+                        temp_dict[last_key] = [last_value]
+                last_value = response
+                last_key = key
+            else:
+                last_value += response
+        else:
+            if last_key in temp_dict:
+                temp_dict[last_key].append(last_value)
+            else:
+                temp_dict[last_key] = [last_value]
+
+            output_list.append(temp_dict)
+            temp_dict = {}
+
+    if last_key in temp_dict:
+        temp_dict[last_key].append(last_value)
+    else:
+        temp_dict[last_key] = [last_value]
+
+    output_list.append(temp_dict)
+
+    return output_list
 
 def get_text(api:'API',response:'Response'):
     return response.text
@@ -355,7 +488,7 @@ class SummaryResult(object):
     Response class for summary()
     """
 
-    def __init__(self,api,data):
+    def __init__(self,api,response):
 
         #self.api = api
         

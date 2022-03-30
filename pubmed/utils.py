@@ -2,6 +2,40 @@
 """
 """
 
+
+def string_to_pmid_list(input_string:str):
+    """
+
+    Parameters
+    ----------
+    input_string : str
+
+
+    input_string = '''
+        8330046
+        8149174
+        8912442
+        9705549
+        10647690
+        11746546
+
+
+        26509358
+        26872575
+        27819757
+        '''
+
+    output = utils.string_to_pmid_list(input_string)
+
+    """
+    output = []
+    for x in input_string.splitlines():
+        x_stripped = x.strip()
+        if x_stripped and not x_stripped.startswith('10.'):
+            output.append(x_stripped)
+
+    return output
+
 class _Quotes(str):
     pass
 

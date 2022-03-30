@@ -1,0 +1,16 @@
+Lang	URL		summary		active	analysis focus	cli	non cli	pdf retrieval	eutils simple wrapper	mesh	pmc	eutils	pubmed-ftp	pmc-ftp
+R	https://github.com/rpsychologist/PubMed			X	no										
+R	https://github.com/neilfws/PubMed			X		yes									
+R	https://github.com/rOpenHealth/rpubmed		"pubmed, pmc, mesh functions"	X	no					maybe	yes	yes			
+Python	https://github.com/titipata/pubmed_parser		Lots of interesting functions	X	yes					no			yes	yes	yes
+Python	https://github.com/billgreenwald/Pubmed-Batch-Download				maybe		yes		yes	no	no	no	no	no	no
+NA	https://github.com/Franck-Dernoncourt/pubmed-rct		Corpus of abstracts		no										
+ruby	https://github.com/elfar/PubmedPDF								yes						
+Python	https://github.com/gijswobben/pymed			X	yes					yes			yes		
+Python	https://github.com/ncbi-nlp/bluebert	https://arxiv.org/abs/1906.05474	"NCBI, nlp work"			yes									
+PHP	https://github.com/tmpjr/pubmed			X						yes					
+Python	https://github.com/spyysalo/pubmed		Lacks documentation		no										
+Python	https://github.com/titipata/affiliation_parser		Parses author affiliations into finer units of info		yes										
+Python	https://github.com/mfcovington/pubmed-lookup						yes	yes							
+Python	https://github.com/fnl/medic			x	no									yes	
+Python	https://github.com/pykong/PyperGrabber		paper retriever						yes						

@@ -54,6 +54,7 @@ Status: search() method needs to be updated ...
 
 
 ESummary
+-------------------------------------------------------
 
 
 
@@ -71,9 +72,12 @@ import requests
 
 #Local
 from . import models
+
 from . import einfo_models
 from . import esearch_models
 from . import elink_models
+from . import esummary_models
+
 from .einfo_models import DbInfo
 CitationMatchResult = models.CitationMatchResult
 from . import config
@@ -274,8 +278,10 @@ class Pubmed(object):
         """
         self.parent = parent
 
-    def info(self):
+    def db_info(self)->'DbInfo':
         """
+
+        Status: Done
 
         Example
         -------
@@ -285,20 +291,24 @@ class Pubmed(object):
         """
         return self.parent._db_info('pubmed')
 
-    def get_pmcid(self, id_or_ids):
+    def pmcid(self, id_or_ids):
         """
+
+        Status: Done
 
         Parameters
         ----------
-        id_or_ids
+        id_or_ids : Union[List[str],List[int],int,str]
+            Pubmed IDs
 
         Examples
         --------
         #1 with PMC, 1 without
-        result = api.pubmed.get_pmcid([1,31500373])
+        result = api.pubmed.pmcid([1,31500373])
+        [None, 'PMC6780166']
 
         #Multiple with PMCIDs
-        >>> result = api.pubmed.get_pmcid([22255275,21068196,28322213])
+        >>> result = api.pubmed.pmcid([22255275,21068196,28322213])
         ['PMC3475720', 'PMC3043805', 'PMC5751745']
 
         See Also
@@ -309,7 +319,26 @@ class Pubmed(object):
         fh = elink_models.pmid_to_pmc_results
         return self.parent._id_convertor(id_or_ids,fh)
 
-    def get_link_outs(self,id_or_ids,primary_only=True):
+    def mesh(self,id_or_ids,return_type='object'):
+        """
+
+        Status: Work in progress.
+
+        ids = ['8330046', '8149174', '8912442', '9705549', '10647690', '11746546', '26509358', '26872575', '27819757']
+        result = api.pubmed.mesh(ids)
+        """
+
+        result = self.info(id_or_ids,return_type='medline')
+        temp_list =  [x['MH'] if 'MH' in x else [] for x in result]
+
+        if return_type == 'object':
+            return models.PMID_MESH_Summary(id_or_ids,temp_list)
+        elif return_type == 'list':
+            return temp_list
+        else:
+            raise ValueError('Unexpected return type')
+
+    def link_outs(self,id_or_ids,primary_only=True):
         """
 
         Example
@@ -329,17 +358,17 @@ class Pubmed(object):
         return self.parent._elink('pubmed',fh,cmd=cmd)
 
 
-    def get_related(self,id):
+    def related(self,id):
         """
 
         """
         return self.parent._elink('pubmed',cmd='neighbor_score')
 
 
-    def pmid_to_doi(self,id_or_ids):
+    def doi(self,id_or_ids):
         """
 
-        doi = api.pubmed.pmid_to_doi('31361061')
+        doi = api.pubmed.doi('31361061')
         """
 
         #Not working, emailed NLM
@@ -477,7 +506,7 @@ class Pubmed(object):
 
         return self.parent._esearch('pubmed',query,fh,start=start,max=max,mode=mode)
 
-    def get_info(self,id_or_ids,return_type='object'):
+    def info(self,id_or_ids,return_type='object',leave_raw=False):
         """
 
         Parameters
@@ -486,15 +515,26 @@ class Pubmed(object):
             ID or list of IDs to process
         return_type : str
             - 'object', default
-            - 'text'
+            - 'asn'
             - 'xml'
 
         Examples
         --------
-        result = api.pubmed.get_info('30343668')
+        result = api.pubmed.info('30343668')
 
+        result = api.pubmed.info('30343668',return_type='asn')
+
+        result = api.pubmed.info('30343668',return_type='medline')
+
+
+        result = api.pubmed.info(['30343668','20516418'],return_type='medline')
 
         """
+
+        #https://www.ncbi.nlm.nih.gov/books/NBK25499/table/chapter4.T._valid_values_of__retmode_and/?report=objectonly
+        # type
+        # mode
+
 
         """
         TODO: We could also support the other return types ...
@@ -505,20 +545,24 @@ class Pubmed(object):
         Abstract	abstract	text
         """
 
+        type = None
         if return_type == 'object':
             fh = models.PubmedArticleSet
-        elif return_type == 'text':
+            mode = 'xml'
+        elif return_type == 'asn':
             fh = models.pass_through
+            mode = 'asn.1'
+        elif return_type == 'medline':
+            fh = models.get_medline
+            type = 'medline'
+            mode = 'text'
         else:
             fh = models.get_xml
 
-        return self.parent._efetch('pubmed',id_or_ids,fh)
+        return self.parent._efetch('pubmed',id_or_ids,fh,mode=mode,type=type)
 
-    def get_summary(self,id_or_ids,return_type='object'):
+    def summary(self,id_or_ids,return_type='object'):
         """
-
-        #TODO: for consistency we should support json & xml
-        #with object from xml being default ...
 
         Parameters
         ----------
@@ -534,16 +578,17 @@ class Pubmed(object):
 
         Examples
         --------
-        result = api.pubmed.get_summary([32022941,31788552])
+        result = api.pubmed.summary([32022941,31788552])
 
-        result = api.pubmed.get_summary([32022941,31788552])
+        result = api.pubmed.summary([32022941,31788552])
         """
 
+        mode = 'xml'
         if return_type == 'object':
-            fh = models.SummaryResult
+            fh = esummary_models.PubmedSummaryResult
+            mode = 'json'
         elif return_type == 'text-xml':
             fh = models.pass_through
-            mode='xml'
         elif return_type == 'text-json':
             fh = models.pass_through
             mode='json'
@@ -551,9 +596,9 @@ class Pubmed(object):
             fh = models.get_xml
         elif return_type == 'json':
             fh = models.get_json
+            mode = 'json'
         else:
             raise ValueError('Invalid return_type option')
-            pass
 
         return self.parent._esummary('pubmed',id_or_ids,fh,mode)
 
