@@ -207,6 +207,7 @@ class MESH(object):
     def info(self):
         return self.parent._db_info('mesh')
 
+    """
     def search(self,query):
         if return_type == 'ids':
             fh = esearch_models.get_search_ids
@@ -232,6 +233,7 @@ class MESH(object):
 
 
         return self.parent._esearch('pubmed',query,fh,start=start,max=max,mode=mode)
+    """
 
 class PMC(object):
 
@@ -277,6 +279,20 @@ class Pubmed(object):
 
         """
         self.parent = parent
+        
+    def __repr__(self):
+        return display_class(self,
+              ['Methods','-------------------',
+               'db_info','returns info on the Pubmed Database',
+               'pmcid','returns PMCID for given PMIDS',
+               'mesh','TODO',
+               'link_outs','TODO',
+               'related','TODO',
+               'doi','TODO',
+               'doi_to_pmid','TODO',
+               'search','TODO',
+               'info','TODO',
+               'summary','TODO'])
 
     def db_info(self)->'DbInfo':
         """
@@ -372,6 +388,11 @@ class Pubmed(object):
         """
 
         #Not working, emailed NLM
+        #
+        #   Basically this relies on PMCID as an intermediary
+        #
+        #   Would need to create my own DB for searching
+        
         pass
 
 
@@ -426,11 +447,15 @@ class Pubmed(object):
 
             # This gives us info which maps
             # each PMID back to the DOI
-            s = self.doc_summary(ids)
+            
+            #TODO: Implement returing as JSON rather than creating object
+            #
+            #   - just need to change return type, and change processing below
+            s = self.summary(ids)
 
             d = {}
             for temp, temp_id in zip(s.docs, s.ids):
-                doi_field = temp['elocationid']
+                doi_field = temp.elocation_id
                 # 'doi: 10.1002/biot.201400046'
                 if doi_field.startswith('doi: '):
                     doi = doi_field[5:]
@@ -451,6 +476,10 @@ class Pubmed(object):
 
     def search(self,query,start=None,max=None,return_type='object'):
         """
+        
+        ??? What gets returned?
+        - summary?
+        - details?
 
         Parameters
         ----------
@@ -506,8 +535,13 @@ class Pubmed(object):
 
         return self.parent._esearch('pubmed',query,fh,start=start,max=max,mode=mode)
 
-    def info(self,id_or_ids,return_type='object',leave_raw=False):
+    def details(self,id_or_ids,return_type='object',leave_raw=False):
         """
+        
+        How does this compare to:
+            - summary?
+            
+        
 
         Parameters
         ----------
@@ -520,14 +554,14 @@ class Pubmed(object):
 
         Examples
         --------
-        result = api.pubmed.info('30343668')
+        result = api.pubmed.details('30343668')
 
-        result = api.pubmed.info('30343668',return_type='asn')
+        result = api.pubmed.details('30343668',return_type='asn')
 
-        result = api.pubmed.info('30343668',return_type='medline')
+        result = api.pubmed.details('30343668',return_type='medline')
 
 
-        result = api.pubmed.info(['30343668','20516418'],return_type='medline')
+        result = api.pubmed.details(['30343668','20516418'],return_type='medline')
 
         """
 
@@ -563,6 +597,9 @@ class Pubmed(object):
 
     def summary(self,id_or_ids,return_type='object'):
         """
+        
+        ??? How is summary different than details?
+        
 
         Parameters
         ----------
@@ -601,21 +638,6 @@ class Pubmed(object):
             raise ValueError('Invalid return_type option')
 
         return self.parent._esummary('pubmed',id_or_ids,fh,mode)
-
-
-
-
-    def pubmed(self):
-        """
-
-        See also the advanced Pubmed search:
-        https://www.ncbi.nlm.nih.gov/pubmed/advanced
-
-
-
-        """
-        return self._db_info('pubmed')
-
 
 
 class API(object):
@@ -671,9 +693,8 @@ class API(object):
               ['authentication',cld(self.authentication),
               'query_logger',cld(self.query_logger),
               'pubmed','Pubmed functions holder',
-              'db_list','Return a list of available databases',
-              'doc_summary','Returns summary info on specified Pubmed IDs',
-              'doc_info',"Get's detailed info on specific IDs"])
+              'pmc','PMC functions holder',
+              'mesh','MESH functions holder'])
 
 
     def _make_request(self,

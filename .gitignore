@@ -90,3 +90,4 @@ ENV/
 # Rope project settings
 .ropeproject
 PMC-ids.csv
+.DS_Store

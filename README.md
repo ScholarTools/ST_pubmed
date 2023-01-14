@@ -18,3 +18,13 @@ This is currently a very slow work in progress.
 Examples are currently demonstrated in test_api.py
 
 As the library stabilizes I'll move more examples here.
+
+## Setup
+
+- Copy `user_config.txt` to `user_config.py`
+- Populate variables:
+  - **email** : This is used to email you if you are causing problems. They are asking that you provide a valid email (honor system)
+  - **api_key** :
+     - instructions : https://support.nlm.nih.gov/knowledgebase/article/KA-05317/en-us
+     - you don't need an API key but it can increase your request rate
+  - **tool** : 

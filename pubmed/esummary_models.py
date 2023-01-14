@@ -30,6 +30,9 @@ if TYPE_CHECKING:
     from .api import CitationMatcherEntry
     from .api import API
     from requests import Response
+    
+    
+from datetime import datetime
 
 #Third Party Imports
 #------------------------------
@@ -37,6 +40,7 @@ if TYPE_CHECKING:
 from bs4.element import Tag
 
 # Local Imports
+#------------------------------
 from .utils import quotes, display_class
 from .utils import get_truncated_display_string as td
 from .utils import get_list_class_display as cld
@@ -47,6 +51,11 @@ from .model_helpers import _get_opt_soup_string, _get_opt_attr_value, _get_opt_c
 from .model_helpers import _get_opt_soup_int
 
 class PubmedSummaryResult(object):
+    
+    """
+    type : 'esummary'
+    version : '0.3'
+    """
 
 
     def __init__(self, api: 'API', response: 'Response'):
@@ -57,20 +66,37 @@ class PubmedSummaryResult(object):
         data = response.json()
         headers = data['header']
         result = data['result']
-
-        self.type = headers['esummary']
+        
+        self.raw = data
+        
+        self.type = headers['type']
         self.version = headers['version']
-
-
-
-        import pdb
-        pdb.set_trace()
+        self.ids = result['uids']
+        self.docs = [PubmedSummary(result[x]) for x in self.ids]
+        #dict_keys(['uids', '25186301', '23467867'])
+        
+    def __repr__(self):
+        return display_class(self,
+              ['raw','<raw JSON dict>',
+               'type',self.type,
+               'version',self.version,
+               'ids',td(self.ids),
+               'docs',cld(self.docs)])
+        
 
 class PubmedSummary(object):
+    
+    """
+    TODO: Where is the DTD for this?
+    
+    Found optional thus far:
+        - publisher_location
+    """
 
     def __init__(self,data):
+        self.raw = data
         self.article_ids = [PubmedArticleID(x) for x in data['articleids']]
-        self.attributes = data.attributes
+        self.attributes = data['attributes']
         self.authors = [PubmedAuthor(x) for x in data['authors']]
         self.available_from_url = data['availablefromurl']
         self.book_name = data['bookname']
@@ -97,8 +123,12 @@ class PubmedSummary(object):
         #epub ahead of print ...
         self.pages = data['pages']
         self.pmc_ref_count = data['pmcrefcount']
+        
+        #TODO: Format???
         self.pub_date = data['pubdate']
-        self.publisher_location = data['publisher_location']
+        
+        
+        self.publisher_location = data.get('publisher_location')
 
         #empty how no publisher?
         self.publisher_name = data['publishername']
@@ -118,6 +148,13 @@ class PubmedSummary(object):
         #'sorttitle': 'what developments are needed to achieve less '
         #'invasive urodynamics ici rs 2019',
 
+        self.sort_first_author = data['sortfirstauthor']
+        #This is a nice date - TODO: Parse into datetime
+        #'2014/11/01 00:00'
+        temp_date = data['sortpubdate']
+        self.sort_pub_date = datetime.strptime(temp_date,'%Y/%m/%d %H:%M')
+        self.sorttitle = data['sorttitle']
+
         #'source': 'Neurourol Urodyn',
         self.source = data['source']
         self.src_contrib_list = data['srccontriblist']
@@ -126,23 +163,43 @@ class PubmedSummary(object):
         self.uid = data['uid']
         self.vernaculartitle = data['vernaculartitle']
         self.volume = data['volume']
-
-
+        
+        #TODO: Get attributes and display in loop
+        
 
 class PubmedAuthor(object):
 
     def __init__(self,data):
+        self.raw = data
         self.type = data['authtype']
         self.cluster_id = data['clusterid']
         self.name = data['name']
+        temp = self.name.split(" ")
+        self.last = " ".join(temp[0:-1])
+        #self.last = self.name.split(" ")[0]
+        
+    def __repr__(self):
+        return display_class(self,
+              ['type',self.type,
+               'cluster_id',self.cluster_id,
+               'name',self.name,
+               'last',self.last])
 
 class PubmedArticleID(object):
 
     def __init__(self,data):
 
+        self.raw = data
         self.id_type = data['idtype']
-        self.enumerated_id_type = data['idtypeen']
+        self.enumerated_id_type = data['idtypen']
         self.value = data['value']
+        
+        
+    def __repr__(self):
+        return display_class(self,
+              ['id_type',self.id_type,
+               'enumerated_id_type',self.enumerated_id_type,
+               'value',self.value])    
 
     """
     {'articleids': [{'idtype': 'pubmed',
@@ -159,41 +216,3 @@ class PubmedArticleID(object):
                               'value': '32022941'}],
     
     """
-
-
-
-#NOT USED
-class SummaryResult(object):
-    """
-
-    See Also
-    --------
-
-    """
-
-    __slots__ = ['xml_info', 'docs']
-
-    xml_info: 'XMLInfo'
-    docs: List['DocumentSummary']
-
-    def __init__(self, api:'API',response:'Response'):
-        data = response.text
-        soup = _make_soup(data)
-        self.xml_info = XMLInfo(soup)
-
-        import pdb
-        pdb.set_trace()
-
-        #<!ELEMENT Id                (#PCDATA)>          <!-- \d+ -->
-        #<!ELEMENT Item              (#PCDATA|Item)*>   <!-- .+ -->
-        #<!ATTLIST Item
-        #Name CDATA #REQUIRED
-        #Type (Integer|Date|String|Structure|List|Flags|Qualifier|Enumerator|Unknown) #REQUIRED
-        #>
-        #<!ELEMENT ERROR             (#PCDATA)>  <!-- .+ -->
-        #<!ELEMENT DocSum            (Id, Item+)>
-        #<!ELEMENT eSummaryResult    (DocSum|ERROR)+>
-
-        #List
-        #-> contains more items ...
-        #

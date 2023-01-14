@@ -15,27 +15,27 @@ api = API(verbose=True)
 #======================================
 #Single DOI match
 doi='10.1002/biot.201400046'
-pmid = api.get_ids_from_doi(doi)
+pmid = api.pubmed.doi_to_pmid(doi)
 assert pmid == '25186301', "PMID returned for DOI is not as expected"
 
 #Multiple DOI match
 dois=['10.1002/biot.201400046','10.2106/JBJS.L.00252']
-pmids = api.get_ids_from_doi(dois)
+pmids = api.pubmed.doi_to_pmid(dois)
 assert pmids == ['25186301', '23467867'], "PMIDs are not as expected"
 
 #Reversed order, PMIDs should reverse
 dois=['10.2106/JBJS.L.00252','10.1002/biot.201400046']
-pmids = api.get_ids_from_doi(dois)
+pmids = api.pubmed.doi_to_pmid(dois)
 assert pmids == ['23467867', '25186301'], "PMIDs are not as expected"
 
 #Missing a comma - single element that won't match
 dois=['10.1002/biot.201400046' '10.2106/JBJS.L.00252']
-pmids = api.get_ids_from_doi(dois)
+pmids = api.pubmed.doi_to_pmid(dois)
 assert pmids == [None], "PMID result not as expected"
 
 #Removed 0 from leading 10
 dois='1.1002/biot.201400046'
-pmids = api.get_ids_from_doi(dois)
+pmids = api.pubmed.doi_to_pmid(dois)
 assert pmids == None, "PMID result not as expected"
 
 
@@ -49,7 +49,7 @@ assert db_list[0] == 'pubmed', "Unexpected list result"
 #Currently 50 databases! April 2018
 #- ncbisearch
 #- nlmcatalog
-c#- pmc
+#- pmc
 #- mesh
 
 #Currently the raw JSON data are returned
@@ -83,11 +83,13 @@ temp = api.search('Mountcastle')
 #---- ESummary, Summary Testing
 #==============================
 ids = ['25186301', '23467867']
-summaries = api.summary(ids)
+summaries = api.pubmed.summary(ids)
 
 
-{'esummaryresult': ['Empty id list - nothing todo'],
- 'header': {'type': 'esummary', 'version': '0.3'}}
+
+
+
+
 
 
 #---- EFetch, Fetch detailed info

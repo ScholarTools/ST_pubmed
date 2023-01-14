@@ -152,6 +152,7 @@ translation_stack: [{'term': 'Amundsen[All Fields]', 'field': 'All Fields', 'cou
         data = response.json()
 
         self.api = api
+        self.raw = data
         self.version = data['header']['version']
         root = data['esearchresult']
 
@@ -162,7 +163,9 @@ translation_stack: [{'term': 'Amundsen[All Fields]', 'field': 'All Fields', 'cou
         self.query_key = root.get('querykey')
         self.query_translation = root['querytranslation']
         self.translation_set = root['translationset']
-        self.translation_stack = root['translationstack']
+        
+        self.translation_stack = root.get("translation_stack")
+
 
         #TODO:
         #translationset
@@ -187,9 +190,9 @@ translation_stack: [{'term': 'Amundsen[All Fields]', 'field': 'All Fields', 'cou
                               'count', self.count,
                               'ids', cld(self.ids),
                               'translation_set', self.translation_set,
+                              'translation_stack',td(self.translation_stack),
                               'ret_start', self.ret_start,
                               'ret_max', self.ret_max,
-                              'translation_stack', self.translation_stack,
                               'query_key', self.query_key,
                               'methods', '----------------------',
                               'get_doc_info', '(self,indices)',
